@@ -38,6 +38,12 @@ class ReportWriterTest {
         assertTrue(html.contains("<th>结论</th><th>代码位置</th><th>Source 类型</th><th>Target 类型</th>"));
         assertTrue(html.contains("data-filter=\"RISK\""));
         assertTrue(html.contains("id=\"search\""));
+        assertTrue(html.contains("id=\"findings-list\""));
+        assertTrue(html.contains("id=\"detail-panel\""));
+        assertTrue(html.contains("id=\"module-filter\""));
+        assertTrue(html.contains("id=\"property-problem-only\""));
+        assertTrue(html.contains("aria-live=\"polite\""));
+        assertFalse(html.contains("<details>"));
         assertFalse(html.contains("http://"));
         assertFalse(html.contains("https://"));
         assertTrue(html.contains("/project/&lt;unsafe&gt;"));
