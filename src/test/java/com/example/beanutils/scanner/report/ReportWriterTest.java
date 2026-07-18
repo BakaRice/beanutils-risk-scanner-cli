@@ -49,11 +49,11 @@ class ReportWriterTest {
                                 FindingStatus.SAFE, false,
                                 "NO_SAME_NAME_SOURCE", "Target 独有属性"),
                         new PropertyFinding("readOnly",
-                                new TypeRef("String", "java.lang.String", true),
+                                TypeRef.unresolved("unresolved<SourceType>"),
                                 new TypeRef("String", "java.lang.String", true),
                                 "example.Source", "example.Target", PropertyMapping.SAME_NAME_NOT_COPYABLE,
-                                FindingStatus.SAFE, false,
-                                "SKIPPED_NO_SETTER", "Target 缺少 setter")),
+                                FindingStatus.REVIEW, false,
+                                "UNKNOWN", "类型信息不完整且 Target 缺少 <setter>")),
                 List.of(), "DIRECT", "Facade");
         var report = new ScanReport("/project/<unsafe>", "2026-07-18T00:00:00+08:00", List.of(finding), List.of());
         Path htmlPath = temp.resolve("report audit#1.html");
@@ -118,25 +118,38 @@ class ReportWriterTest {
                     .map(path -> path.getFileName().toString()).sorted().toList());
         }
         assertFalse(Files.exists(detailDirectory.resolve("finding-9999.html")));
-        assertTrue(detail.contains("id=\"source-properties\""));
-        assertTrue(detail.contains("Source Bean 全部属性 · 3 个"));
-        assertTrue(detail.contains("id=\"target-properties\""));
-        assertTrue(detail.contains("Target Bean 全部属性 · 3 个"));
-        assertTrue(detail.contains("id=\"property-mappings\""));
-        assertTrue(detail.contains("属性映射对照 · 4 个"));
-        assertTrue(detail.contains("<th>Spring 5.0.7</th>"));
-        assertTrue(detail.contains("原始类型可赋值"));
-        assertTrue(detail.contains("同名但不可复制"));
-        assertTrue(detail.contains("data-source-property=\"items\""));
-        assertTrue(detail.contains("data-source-property=\"sourceOnly\""));
-        assertTrue(detail.contains("data-source-property=\"readOnly\""));
-        assertFalse(detail.contains("data-source-property=\"targetOnly\""));
-        assertTrue(detail.contains("data-target-property=\"items\""));
-        assertTrue(detail.contains("data-target-property=\"targetOnly\""));
-        assertTrue(detail.contains("data-target-property=\"readOnly\""));
-        assertFalse(detail.contains("data-target-property=\"sourceOnly\""));
-        assertTrue(detail.contains("声明于 example.BaseSource"));
-        assertTrue(detail.contains("声明于 example.BaseTarget"));
+        assertFalse(detail.contains("id=\"source-properties\""));
+        assertFalse(detail.contains("id=\"target-properties\""));
+        assertFalse(detail.contains("id=\"property-mappings\""));
+        assertTrue(detail.contains("id=\"bean-property-union\""));
+        assertTrue(detail.contains("Bean 属性并集 · 4 个"));
+        assertEquals(1, occurrences(detail, "<table class=\"property-table union-table\""));
+        assertTrue(detail.contains("<th>属性名</th><th>Source 字段</th><th>Target 字段</th><th>映射关系</th><th>Spring 5.0.7</th><th>Spring 5.3.1 结论与原因</th>"));
+        for (String propertyName : List.of("items", "sourceOnly", "targetOnly", "readOnly")) {
+            assertEquals(1, occurrences(detail, "data-property=\"" + propertyName + "\""));
+        }
+        String itemsRow = propertyRow(detail, "items");
+        assertTrue(itemsRow.contains("java.util.List&lt;java.lang.String&gt;"));
+        assertTrue(itemsRow.contains("java.util.List&lt;java.lang.Long&gt;"));
+        assertTrue(itemsRow.contains("声明于 example.BaseSource"));
+        assertTrue(itemsRow.contains("声明于 example.BaseTarget"));
+        assertTrue(itemsRow.contains("原始类型可赋值"));
+        assertTrue(itemsRow.contains("<span class=\"status risk\">RISK</span>"));
+        String sourceOnlyRow = propertyRow(detail, "sourceOnly");
+        assertTrue(sourceOnlyRow.contains("java.lang.String"));
+        assertEquals(1, occurrences(sourceOnlyRow, "— 不存在"));
+        assertTrue(sourceOnlyRow.contains("Source 独有"));
+        String targetOnlyRow = propertyRow(detail, "targetOnly");
+        assertTrue(targetOnlyRow.contains("java.lang.Long"));
+        assertEquals(1, occurrences(targetOnlyRow, "— 不存在"));
+        assertTrue(targetOnlyRow.contains("Target 独有"));
+        String readOnlyRow = propertyRow(detail, "readOnly");
+        assertTrue(readOnlyRow.contains("同名但不可复制"));
+        assertTrue(readOnlyRow.contains("unresolved&lt;SourceType&gt;"));
+        assertFalse(readOnlyRow.contains("— 不存在"));
+        assertTrue(readOnlyRow.contains("<span class=\"status review\">REVIEW</span>"));
+        assertTrue(readOnlyRow.contains("类型信息不完整且 Target 缺少 &lt;setter&gt;"));
+        assertFalse(readOnlyRow.contains("类型信息不完整且 Target 缺少 <setter>"));
         assertTrue(detail.contains("href=\"../report%20audit%231.html\""));
         assertTrue(detail.contains("href=\"finding-0002.html\""));
         String secondDetail = Files.readString(detailDirectory.resolve("finding-0002.html"));
@@ -149,5 +162,20 @@ class ReportWriterTest {
         assertTrue(secondDetail.contains("下一个调用 →</span>"));
         assertFalse(detail.contains("http://"));
         assertFalse(detail.contains("https://"));
+    }
+
+    private String propertyRow(String html, String propertyName) {
+        String marker = "<tr data-property=\"" + propertyName + "\"";
+        int start = html.indexOf(marker);
+        int end = html.indexOf("</tr>", start);
+        return start < 0 || end < 0 ? "" : html.substring(start, end + 5);
+    }
+
+    private int occurrences(String value, String needle) {
+        int count = 0;
+        for (int index = value.indexOf(needle); index >= 0; index = value.indexOf(needle, index + needle.length())) {
+            count++;
+        }
+        return count;
     }
 }

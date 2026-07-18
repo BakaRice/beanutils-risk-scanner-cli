@@ -114,10 +114,6 @@ public final class HtmlReportWriter {
 
     private String detailPage(ScanReport report, int index, String indexFileName) {
         CopyFinding finding = report.findings().get(index);
-        List<PropertyFinding> sourceProperties = finding.properties().stream()
-                .filter(property -> property.mapping() != PropertyMapping.TARGET_ONLY).toList();
-        List<PropertyFinding> targetProperties = finding.properties().stream()
-                .filter(property -> property.mapping() != PropertyMapping.SOURCE_ONLY).toList();
         String previous = index > 0 ? navLink(detailFileName(index - 1), "← 上一个调用", "") : disabledNav("← 上一个调用");
         String next = index + 1 < report.findings().size()
                 ? navLink(detailFileName(index + 1), "下一个调用 →", "") : disabledNav("下一个调用 →");
@@ -131,10 +127,8 @@ public final class HtmlReportWriter {
                 <header class="detail-header"><div class="detail-heading"><div class="detail-kicker">调用 %d / %d</div><div class="detail-title-line">%s<h1>%s</h1></div><p>Module：%s <span>·</span> 调用形式：%s</p></div><div class="verdict-card %s"><span>扫描结论</span><b>%s</b><small>%s</small></div></header>
                 %s
                 <section class="detail-section"><div class="section-heading"><div><span class="section-index">01</span><h2>调用现场</h2></div></div><pre class="code-block"><code>%s</code></pre><div class="bean-types">%s%s</div></section>
-                <section class="detail-section property-section" id="source-properties"><div class="section-heading"><div><span class="section-index">02</span><h2>Source Bean 全部属性 · %d 个</h2></div><p>不论是否存在 Target 同名属性，全部列出</p></div>%s</section>
-                <section class="detail-section property-section" id="target-properties"><div class="section-heading"><div><span class="section-index">03</span><h2>Target Bean 全部属性 · %d 个</h2></div><p>不论是否存在 Source 同名属性，全部列出</p></div>%s</section>
-                <section class="detail-section" id="property-mappings"><div class="section-heading"><div><span class="section-index">04</span><h2>属性映射对照 · %d 个</h2></div><p>完整属性并集与 Spring 5.3.1 判定</p></div>%s</section>
-                <section class="detail-section"><div class="section-heading"><div><span class="section-index">05</span><h2>调用链</h2></div></div>%s</section>
+                <section class="detail-section property-section" id="bean-property-union"><div class="section-heading"><div><span class="section-index">02</span><h2>Bean 属性并集 · %d 个</h2></div><p>每个属性一行，同时核对两侧存在性、类型和升级结论</p></div>%s</section>
+                <section class="detail-section"><div class="section-heading"><div><span class="section-index">03</span><h2>调用链</h2></div></div>%s</section>
                 <footer class="detail-footer">%s<div class="pager">%s%s</div></footer>
                 </main></body></html>
                 """.formatted(html(location), sharedCss(), back, previous, next, index + 1, report.findings().size(),
@@ -142,50 +136,40 @@ public final class HtmlReportWriter {
                 html(finding.callForm()), finding.status().name().toLowerCase(Locale.ROOT), finding.status(),
                 html(verdictDescription(finding)), reviewReasonsSection(finding), html(finding.code()),
                 typeCard("Source Bean", finding.sourceType()), typeCard("Target Bean", finding.targetType()),
-                sourceProperties.size(), sidePropertyTable(sourceProperties, true), targetProperties.size(),
-                sidePropertyTable(targetProperties, false), finding.properties().size(), mappingTable(finding),
+                finding.properties().size(), propertyUnionTable(finding),
                 callChain(finding), back, previous, next);
     }
 
-    private String sidePropertyTable(List<PropertyFinding> properties, boolean sourceSide) {
-        if (properties.isEmpty()) {
-            return "<div class=\"property-empty\"><b>未能列出属性</b><span>该 Bean 类型或属性未能完整解析，请结合调用代码人工复核。</span></div>";
-        }
-        String side = sourceSide ? "source" : "target";
-        StringBuilder body = new StringBuilder();
-        for (PropertyFinding property : properties) {
-            TypeRef type = sourceSide ? property.sourceType() : property.targetType();
-            String owner = sourceSide ? property.sourceDeclaringType() : property.targetDeclaringType();
-            body.append("<tr data-").append(side).append("-property=\"")
-                    .append(attribute(property.propertyName())).append("\"><td><strong>")
-                    .append(html(property.propertyName())).append("</strong></td><td><code>")
-                    .append(html(type.qualifiedName())).append("</code><small>")
-                    .append(owner == null || owner.isBlank() ? "声明类未解析" : "声明于 " + html(owner))
-                    .append("</small></td><td>").append(mapping(property.mapping())).append("</td><td>")
-                    .append(status(property.status())).append("</td><td class=\"reason-cell\">")
-                    .append(html(property.reason())).append("</td></tr>");
-        }
-        return "<div class=\"table-scroll\"><table class=\"property-table side-table\"><thead><tr><th>属性名</th><th>属性类型与来源</th><th>映射关系</th><th>结论</th><th>说明</th></tr></thead><tbody>"
-                + body + "</tbody></table></div>";
-    }
-
-    private String mappingTable(CopyFinding finding) {
+    private String propertyUnionTable(CopyFinding finding) {
         if (finding.properties().isEmpty()) {
-            return "<div class=\"property-empty\"><b>属性映射无法确定</b><span>当前调用的类型解析不完整，因此没有足够证据形成映射结论。</span></div>";
+            return "<div class=\"property-empty\"><b>Bean 属性并集无法确定</b><span>当前调用的类型或属性解析不完整，没有足够证据形成属性并集，需要结合调用代码人工复核。</span></div>";
         }
         StringBuilder body = new StringBuilder();
         for (PropertyFinding property : finding.properties()) {
-            body.append("<tr><td>").append(status(property.status())).append("</td><td>")
-                    .append(mapping(property.mapping())).append("</td><td><strong>")
+            body.append("<tr data-property=\"").append(attribute(property.propertyName())).append("\"><td><strong>")
                     .append(html(property.propertyName())).append("</strong></td><td>")
-                    .append(propertyType(property.sourceType(), property.sourceDeclaringType())).append("</td><td>")
-                    .append(propertyType(property.targetType(), property.targetDeclaringType())).append("</td><td>")
-                    .append(oldVersionResult(property)).append("</td><td><b class=\"decision\">")
+                    .append(propertySide(property, true)).append("</td><td>")
+                    .append(propertySide(property, false)).append("</td><td>")
+                    .append(mapping(property.mapping())).append("</td><td>")
+                    .append(oldVersionResult(property)).append("</td><td>")
+                    .append(status(property.status())).append("<b class=\"decision\">")
                     .append(html(property.newDecision())).append("</b><span class=\"reason\">")
                     .append(html(property.reason())).append("</span></td></tr>");
         }
-        return "<div class=\"table-scroll\"><table class=\"property-table mapping-table\"><thead><tr><th>结论</th><th>映射关系</th><th>属性名</th><th>Source 属性</th><th>Target 属性</th><th>Spring 5.0.7</th><th>Spring 5.3.1 判定与原因</th></tr></thead><tbody>"
+        return "<div class=\"table-scroll\"><table class=\"property-table union-table\"><thead><tr><th>属性名</th><th>Source 字段</th><th>Target 字段</th><th>映射关系</th><th>Spring 5.0.7</th><th>Spring 5.3.1 结论与原因</th></tr></thead><tbody>"
                 + body + "</tbody></table></div>";
+    }
+
+    private String propertySide(PropertyFinding property, boolean sourceSide) {
+        boolean absent = sourceSide
+                ? property.mapping() == PropertyMapping.TARGET_ONLY
+                : property.mapping() == PropertyMapping.SOURCE_ONLY;
+        if (absent) {
+            return "<span class=\"property-absent\">— 不存在</span>";
+        }
+        TypeRef type = sourceSide ? property.sourceType() : property.targetType();
+        String owner = sourceSide ? property.sourceDeclaringType() : property.targetDeclaringType();
+        return propertyType(type, owner);
     }
 
     private String oldVersionResult(PropertyFinding property) {
@@ -368,7 +352,7 @@ public final class HtmlReportWriter {
                 .list-panel{overflow:auto;border:1px solid var(--line);border-radius:11px;background:var(--paper);box-shadow:var(--shadow)}table{width:100%;border-collapse:collapse}.findings-table{min-width:1080px}.findings-table th,.findings-table td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:13px 14px}.findings-table thead th{position:sticky;top:0;z-index:2;background:#f8f9fb;color:#596579;font-size:11px;letter-spacing:.035em;white-space:nowrap}.findings-table tbody tr{cursor:pointer;transition:background .12s ease}.findings-table tbody tr:hover{background:#f6f9ff}.findings-table tbody tr:focus{outline:2px solid var(--blue);outline-offset:-2px}.findings-table tbody tr:last-child td{border-bottom:0}.findings-table td:nth-child(1){width:90px}.findings-table td:nth-child(2){width:165px}.findings-table td:nth-child(3),.findings-table td:nth-child(4){width:22%}.findings-table td:nth-child(6){width:105px;vertical-align:middle}.file,.type-name{display:block;font-weight:700}.location-cell .file,.location-cell .location-module{white-space:normal;overflow-wrap:anywhere}.module-chip{display:inline-block;margin-top:5px;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:#526075;font-size:10px;background:#f8fafc}small{display:block;margin-top:3px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.summary{font-weight:700}.problem-text{color:var(--risk)}.safe-text{color:var(--safe)}.muted{color:var(--muted)}.open-cell{text-align:right!important}.detail-link{color:var(--blue);font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap}.detail-link:hover{text-decoration:underline}.empty{display:none;padding:48px;text-align:center;color:var(--muted)}
                 .status{display:inline-flex;align-items:center;justify-content:center;min-width:66px;border-radius:999px;padding:3px 8px;color:#fff;font-size:10px;font-weight:850;letter-spacing:.04em}.status.risk{background:var(--risk)}.status.review{background:var(--review)}.status.ignored{background:var(--ignored)}.status.safe{background:var(--safe)}.mapping{display:inline-block;border:1px solid var(--line);border-radius:5px;padding:2px 7px;background:#f8fafc;color:#536075;font-size:10px;white-space:nowrap}.mapping.mapped{border-color:#afdac8;background:var(--safe-soft);color:var(--safe)}.mapping.same_name_not_copyable{border-color:#efc98d;background:var(--review-soft);color:var(--review)}.mapping.source_only{border-color:#b9caef;background:var(--blue-soft);color:var(--blue)}.mapping.target_only{border-color:#c7cdd7;background:var(--ignored-soft);color:var(--ignored)}
                 .detail-shell{max-width:1440px;margin:0 auto;padding:0 28px 64px}.detail-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:15px;min-height:58px;margin-bottom:26px;border-bottom:1px solid var(--line);background:rgba(242,244,247,.94);backdrop-filter:blur(10px)}.pager{display:flex;gap:7px}.nav-link{display:inline-flex;align-items:center;justify-content:center;min-height:34px;border:1px solid var(--line-dark);border-radius:7px;background:#fff;padding:6px 11px;color:#344054;font-size:12px;font-weight:650;text-decoration:none}.nav-link:hover{border-color:var(--blue);color:var(--blue)}.nav-link.back-link{border:0;background:transparent;padding-left:0;color:var(--blue)}.nav-link.disabled{opacity:.42;cursor:not-allowed}.detail-header{display:grid;grid-template-columns:1fr 260px;gap:24px;align-items:stretch;margin-bottom:18px}.detail-heading{min-width:0;padding:9px 0}.detail-title-line{display:flex;align-items:center;gap:12px;margin-top:6px}.detail-title-line h1{margin:0;font-size:25px;overflow-wrap:anywhere}.detail-heading p{margin:8px 0 0;color:var(--muted)}.detail-heading p span{padding:0 5px}.verdict-card{display:flex;flex-direction:column;justify-content:center;border:1px solid var(--line);border-left:4px solid var(--ignored);border-radius:9px;background:#fff;padding:16px 18px;box-shadow:var(--shadow)}.verdict-card.risk{border-left-color:var(--risk)}.verdict-card.review{border-left-color:var(--review)}.verdict-card.safe{border-left-color:var(--safe)}.verdict-card span{color:var(--muted);font-size:11px}.verdict-card b{margin:2px 0;font-size:22px}.verdict-card.risk b{color:var(--risk)}.verdict-card.review b{color:var(--review)}.verdict-card.safe b{color:var(--safe)}
-                .detail-section{margin:14px 0;border:1px solid var(--line);border-radius:11px;background:#fff;padding:20px;box-shadow:0 2px 12px rgba(23,32,51,.035);scroll-margin-top:72px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:14px}.section-heading>div{display:flex;align-items:center;gap:9px}.section-heading h2{margin:0;font-size:16px}.section-heading p{margin:1px 0 0;color:var(--muted);font-size:11px}.section-index{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:6px;background:var(--navy);color:#fff;font-size:10px;font-weight:800}.code-block{margin:0;border:1px solid var(--line);border-radius:8px;background:#f7f8fa;padding:14px;white-space:pre-wrap;word-break:break-word;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.bean-types{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.bean-type-card{min-width:0;border:1px solid var(--line);border-radius:8px;padding:13px}.bean-type-card>span{display:block;color:var(--blue);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.bean-type-card b{display:block;margin:3px 0;font-size:15px}.bean-type-card code,.property-table code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:8px}.property-table{min-width:900px;font-size:12px}.property-table th,.property-table td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px}.property-table thead th{background:#f7f8fa;color:#596579;font-size:10px;letter-spacing:.025em;white-space:nowrap}.property-table tbody tr:last-child td{border-bottom:0}.property-table tbody tr:hover{background:#fafcff}.side-table th:nth-child(1){width:14%}.side-table th:nth-child(2){width:30%}.side-table th:nth-child(3){width:16%}.side-table th:nth-child(4){width:90px}.reason-cell{color:#526075}.mapping-table{min-width:1280px}.mapping-table th:nth-child(1){width:85px}.mapping-table th:nth-child(2){width:140px}.mapping-table th:nth-child(3){width:130px}.mapping-table th:nth-child(4),.mapping-table th:nth-child(5){width:18%}.mapping-table th:nth-child(6){width:135px}.old-result{font-size:11px}.old-copy{color:var(--safe);font-weight:700}.decision{display:block;color:#344054;font-size:11px}.reason{display:block;margin-top:3px;color:#596579}.property-empty{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px dashed var(--line-dark);border-radius:8px;background:#fafbfc;padding:18px;color:var(--muted)}.property-empty b{color:#344054}.call-chain{list-style:none;margin:0;padding:0}.call-chain li{display:flex;gap:10px;align-items:flex-start;padding:7px 0}.call-chain li>span{display:block;width:8px;height:8px;margin-top:7px;border:2px solid var(--blue);border-radius:50%;background:#fff}.call-chain b,.call-chain small{display:block}.detail-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}
+                .detail-section{margin:14px 0;border:1px solid var(--line);border-radius:11px;background:#fff;padding:20px;box-shadow:0 2px 12px rgba(23,32,51,.035);scroll-margin-top:72px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:14px}.section-heading>div{display:flex;align-items:center;gap:9px}.section-heading h2{margin:0;font-size:16px}.section-heading p{margin:1px 0 0;color:var(--muted);font-size:11px}.section-index{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:6px;background:var(--navy);color:#fff;font-size:10px;font-weight:800}.code-block{margin:0;border:1px solid var(--line);border-radius:8px;background:#f7f8fa;padding:14px;white-space:pre-wrap;word-break:break-word;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.bean-types{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.bean-type-card{min-width:0;border:1px solid var(--line);border-radius:8px;padding:13px}.bean-type-card>span{display:block;color:var(--blue);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.bean-type-card b{display:block;margin:3px 0;font-size:15px}.bean-type-card code,.property-table code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:8px}.property-table{min-width:900px;font-size:12px}.property-table th,.property-table td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px}.property-table thead th{background:#f7f8fa;color:#596579;font-size:10px;letter-spacing:.025em;white-space:nowrap}.property-table tbody tr:last-child td{border-bottom:0}.property-table tbody tr:hover{background:#fafcff}.union-table{min-width:1160px}.union-table th:nth-child(1){width:12%}.union-table th:nth-child(2),.union-table th:nth-child(3){width:21%}.union-table th:nth-child(4){width:14%}.union-table th:nth-child(5){width:13%}.union-table th:nth-child(6){width:19%}.property-absent{display:inline-block;color:#8b95a5;font-style:italic}.old-result{font-size:11px}.old-copy{color:var(--safe);font-weight:700}.decision{display:block;margin-top:4px;color:#344054;font-size:11px}.reason{display:block;margin-top:3px;color:#596579}.property-empty{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px dashed var(--line-dark);border-radius:8px;background:#fafbfc;padding:18px;color:var(--muted)}.property-empty b{color:#344054}.call-chain{list-style:none;margin:0;padding:0}.call-chain li{display:flex;gap:10px;align-items:flex-start;padding:7px 0}.call-chain li>span{display:block;width:8px;height:8px;margin-top:7px;border:2px solid var(--blue);border-radius:50%;background:#fff}.call-chain b,.call-chain small{display:block}.detail-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}
                 .findings-table td:nth-child(1){width:240px}.findings-table td:nth-child(3),.findings-table td:nth-child(4){width:20%}.conclusion-cell .status{margin-bottom:6px}.review-primary{display:block;color:#704000;line-height:1.45}.review-primary b{display:block;margin-bottom:2px;color:var(--review);font:700 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.review-reasons-section{border-color:#efc98d;background:#fffbf4}.review-index{background:var(--review)}.review-reason-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}.review-reason-list li{border:1px solid #efd7ae;border-left:3px solid var(--review);border-radius:7px;background:#fff;padding:11px 13px}.review-reason-list li>div{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.review-reason-list code{color:#7a4600;font:700 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}.review-reason-list span{border-radius:999px;background:var(--review-soft);padding:2px 7px;color:#875000;font-size:10px;font-weight:700}.review-reason-list p{margin:5px 0 0;color:#4c3a24;overflow-wrap:anywhere}
                 @media(max-width:980px){.metrics{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 200px}.visible-count{padding-bottom:0}.detail-header{grid-template-columns:1fr}.bean-types{grid-template-columns:1fr}}
                 @media(max-width:680px){.page-shell,.detail-shell{padding-left:12px;padding-right:12px}.report-header{display:block}.header-note{margin-top:18px}.metrics{grid-template-columns:1fr 1fr}.controls{position:static;grid-template-columns:1fr}.detail-nav{margin-bottom:14px}.detail-nav .pager{display:none}.detail-title-line{align-items:flex-start;flex-direction:column}.detail-title-line h1{font-size:20px}.detail-section{padding:14px}.section-heading{display:block}.section-heading p{margin:7px 0 0 34px}.detail-footer{align-items:flex-start;flex-direction:column}.detail-footer .pager{width:100%;justify-content:space-between}}
