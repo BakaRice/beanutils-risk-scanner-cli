@@ -6,17 +6,27 @@ import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
 
 final class TypeCompatibilityEngine {
+    private boolean complete;
+
     Decision decide(ResolvedType source, ResolvedType target) {
+        complete = true;
         if (source == null || target == null || source.isTypeVariable() || target.isTypeVariable()
                 || source.isWildcard() || target.isWildcard()) {
-            return new Decision(FindingStatus.REVIEW, false, "UNKNOWN", "类型信息不完整或包含未绑定类型变量");
+            return unknown();
         }
-        if (isRaw(source) || isRaw(target)) {
+        boolean raw = isRaw(source) || isRaw(target);
+        if (!complete) {
+            return unknown();
+        }
+        if (raw) {
             return new Decision(FindingStatus.REVIEW, oldAssignable(source, target), "UNKNOWN",
                     "raw type 已丢失泛型参数，需要人工复核");
         }
         boolean oldAssignable = oldAssignable(source, target);
         boolean newAssignable = newAssignable(source, target);
+        if (!complete) {
+            return unknown();
+        }
         if (newAssignable) {
             return new Decision(FindingStatus.SAFE, oldAssignable, "ASSIGNABLE",
                     "Spring 5.3 泛型感知检查可赋值");
@@ -35,8 +45,9 @@ final class TypeCompatibilityEngine {
         }
         try {
             return target.isAssignableBy(source);
-        } catch (RuntimeException exception) {
-            return source.describe().equals(target.describe());
+        } catch (RuntimeException | LinkageError exception) {
+            complete = false;
+            return false;
         }
     }
 
@@ -55,8 +66,9 @@ final class TypeCompatibilityEngine {
                         && targetDeclaration.orElseThrow().isAssignableBy(sourceDeclaration.orElseThrow());
             }
             return source.describe().equals(target.describe());
-        } catch (RuntimeException exception) {
-            return erase(source.describe()).equals(erase(target.describe()));
+        } catch (RuntimeException | LinkageError exception) {
+            complete = false;
+            return false;
         }
     }
 
@@ -68,7 +80,8 @@ final class TypeCompatibilityEngine {
             if (target.isPrimitive() && source.isReferenceType()) {
                 return primitiveWrapper(target.asPrimitive(), source.asReferenceType());
             }
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException | LinkageError ignored) {
+            complete = false;
             return false;
         }
         return false;
@@ -92,14 +105,15 @@ final class TypeCompatibilityEngine {
         try {
             return type.isReferenceType() && type.asReferenceType().isRawType()
                     && type.asReferenceType().getTypeDeclaration().map(value -> !value.getTypeParameters().isEmpty()).orElse(false);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
+            complete = false;
             return false;
         }
     }
 
-    private String erase(String value) {
-        int generic = value.indexOf('<');
-        return generic < 0 ? value : value.substring(0, generic);
+    private Decision unknown() {
+        return new Decision(FindingStatus.REVIEW, false, "UNKNOWN",
+                "类型信息不完整或依赖类缺失，需要人工复核");
     }
 
     record Decision(FindingStatus status, boolean oldAssignable, String newDecision, String reason) {

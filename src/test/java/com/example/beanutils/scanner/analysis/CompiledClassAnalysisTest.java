@@ -60,6 +60,23 @@ class CompiledClassAnalysisTest {
                 && line.contains("evidence=compiled-class")));
     }
 
+    @Test
+    void reportsReviewInsteadOfExitingWhenABeanImplementsMissingMybatisPlusService() throws Exception {
+        writeMissingFrameworkInterfaceProject();
+        compileMissingFrameworkInterfaceProject();
+        Files.delete(project.resolve("target/classes/com/baomidou/mybatisplus/service/IService.class"));
+        Files.delete(project.resolve("src/main/java/com/baomidou/mybatisplus/service/IService.java"));
+        var trace = new ArrayList<String>();
+
+        var report = new BeanUtilsRiskScanner().scan(new ScanRequest(project,
+                Path.of(System.getProperty("user.home"), ".m2", "repository"), false, true), trace::add);
+
+        assertEquals(1, report.findings().size());
+        assertEquals(FindingStatus.REVIEW, report.findings().get(0).status());
+        assertTrue(trace.stream().anyMatch(line -> line.contains("type=fixture.MybatisServiceBean")
+                && (line.contains("CLASS-FALLBACK") || line.contains("property-model-incomplete"))));
+    }
+
     private void writeProjectSources() throws Exception {
         Files.writeString(project.resolve("pom.xml"), """
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -177,5 +194,52 @@ class CompiledClassAnalysisTest {
                     public void setName(String name) { this.name = name; }
                 }
                 """.formatted(name);
+    }
+
+    private void writeMissingFrameworkInterfaceProject() throws Exception {
+        Files.writeString(project.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture</groupId><artifactId>missing-mybatis-plus</artifactId><version>1</version>
+                  <dependencies><dependency><groupId>org.springframework</groupId><artifactId>spring-beans</artifactId><version>5.0.7.RELEASE</version></dependency></dependencies>
+                </project>
+                """);
+        Path framework = Files.createDirectories(
+                project.resolve("src/main/java/com/baomidou/mybatisplus/service"));
+        Files.writeString(framework.resolve("IService.java"), """
+                package com.baomidou.mybatisplus.service;
+                public interface IService<T> {}
+                """);
+        Path source = Files.createDirectories(project.resolve("src/main/java/fixture"));
+        Files.writeString(source.resolve("MybatisServiceBean.java"), """
+                package fixture;
+                public class MybatisServiceBean
+                        implements com.baomidou.mybatisplus.service.IService<String> {
+                    private String name;
+                    public String getName() { return name; }
+                    public void setName(String name) { this.name = name; }
+                }
+                """);
+        Files.writeString(source.resolve("Target.java"), beanWithStringProperty("Target"));
+        Files.writeString(source.resolve("CopyService.java"), """
+                package fixture;
+                import org.springframework.beans.BeanUtils;
+                public class CopyService {
+                    void copy(MybatisServiceBean source, Target target) {
+                        BeanUtils.copyProperties(source, target);
+                    }
+                }
+                """);
+    }
+
+    private void compileMissingFrameworkInterfaceProject() throws Exception {
+        Path source = project.resolve("src/main/java");
+        Path output = Files.createDirectories(project.resolve("target/classes"));
+        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null,
+                "-d", output.toString(),
+                source.resolve("com/baomidou/mybatisplus/service/IService.java").toString(),
+                source.resolve("fixture/MybatisServiceBean.java").toString(),
+                source.resolve("fixture/Target.java").toString());
+        assertEquals(0, exit);
     }
 }

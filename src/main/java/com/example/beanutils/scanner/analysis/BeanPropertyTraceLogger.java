@@ -75,7 +75,7 @@ public final class BeanPropertyTraceLogger {
         }
         try {
             return type.describe();
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return type.toString();
         }
     }
@@ -83,7 +83,7 @@ public final class BeanPropertyTraceLogger {
     private String describe(ResolvedReferenceType type) {
         try {
             return type.describe();
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return type.toString();
         }
     }

@@ -39,7 +39,7 @@ public final class LocalClasspathResolver {
                 continue;
             }
             String scope = dependency.getScope();
-            if ("test".equals(scope) || "provided".equals(scope) || "system".equals(scope)
+            if ("test".equals(scope) || "system".equals(scope)
                     || dependency.isOptional() || "pom".equals(dependency.getType())) {
                 continue;
             }

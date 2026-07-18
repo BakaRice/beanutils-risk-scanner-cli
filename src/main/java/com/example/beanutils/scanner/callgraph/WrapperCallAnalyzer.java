@@ -104,7 +104,7 @@ public final class WrapperCallAnalyzer {
         if (argument instanceof ClassExpr classExpr) {
             try {
                 return classExpr.getType().resolve();
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
@@ -118,19 +118,23 @@ public final class WrapperCallAnalyzer {
             if (type.isConstraint()) type = type.asConstraintType().getBound();
             if (type.isWildcard() && type.asWildcard().isBounded()) return type.asWildcard().getBoundedType();
             return type;
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return null;
         }
     }
 
     private TypeRef ref(SourceWorkspace workspace, ResolvedType type, Expression expression) {
         if (type == null) return TypeRef.unresolved(expression == null ? "?" : expression.toString());
-        TypeRef reference = new TypeRef(shortName(type.describe()), type.describe(), true);
-        String rawQualifiedName = type.isReferenceType()
-                ? type.asReferenceType().getQualifiedName() : type.describe().replaceAll("<.*>", "");
-        return workspace.typeLocation(rawQualifiedName)
-                .map(location -> reference.withOrigin(location.module(), location.relativePath()))
-                .orElse(reference);
+        try {
+            TypeRef reference = new TypeRef(shortName(type.describe()), type.describe(), true);
+            String rawQualifiedName = type.isReferenceType()
+                    ? type.asReferenceType().getQualifiedName() : type.describe().replaceAll("<.*>", "");
+            return workspace.typeLocation(rawQualifiedName)
+                    .map(location -> reference.withOrigin(location.module(), location.relativePath()))
+                    .orElse(reference);
+        } catch (RuntimeException | LinkageError exception) {
+            return TypeRef.unresolved(expression == null ? "?" : expression.toString());
+        }
     }
 
     private CopyFinding asReview(CopyFinding base, CopyCallSite terminal, String reason) {
@@ -163,7 +167,7 @@ public final class WrapperCallAnalyzer {
     private boolean springReference(MethodReferenceExpr reference) {
         try {
             return reference.resolve().declaringType().getQualifiedName().equals("org.springframework.beans.BeanUtils");
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return reference.getScope().toString().endsWith("BeanUtils")
                     && reference.getIdentifier().equals("copyProperties");
         }
@@ -173,7 +177,7 @@ public final class WrapperCallAnalyzer {
         try {
             var declaration = call.resolve();
             return key(declaration.declaringType().getQualifiedName(), declaration.getName());
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return null;
         }
     }

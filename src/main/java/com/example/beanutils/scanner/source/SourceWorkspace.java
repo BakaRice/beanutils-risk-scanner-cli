@@ -40,7 +40,7 @@ public record SourceWorkspace(
         try {
             var solved = typeSolver.tryToSolveType(qualifiedName);
             return solved.isSolved() ? Optional.of(solved.getCorrespondingDeclaration()) : Optional.empty();
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return Optional.empty();
         }
     }

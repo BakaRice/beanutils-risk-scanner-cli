@@ -111,7 +111,7 @@ public final class BeanUtilsCallDetector {
     private boolean resolvesToSpring(MethodCallExpr call) {
         try {
             return call.resolve().declaringType().getQualifiedName().equals(SPRING_BEAN_UTILS);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return false;
         }
     }
@@ -119,7 +119,7 @@ public final class BeanUtilsCallDetector {
     private boolean resolvesToSpring(MethodReferenceExpr reference) {
         try {
             return reference.resolve().declaringType().getQualifiedName().equals(SPRING_BEAN_UTILS);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return false;
         }
     }
@@ -137,7 +137,7 @@ public final class BeanUtilsCallDetector {
                 return type.asWildcard().getBoundedType();
             }
             return type;
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return null;
         }
     }
@@ -146,20 +146,24 @@ public final class BeanUtilsCallDetector {
         if (type == null) {
             return TypeRef.unresolved(expression == null ? "missing-expression" : expression.toString());
         }
-        String qualified = type.describe();
-        TypeRef reference = new TypeRef(shortName(qualified), qualified, true);
-        String rawQualifiedName = type.isReferenceType()
-                ? type.asReferenceType().getQualifiedName() : qualified.replaceAll("<.*>", "");
-        return workspace.typeLocation(rawQualifiedName)
-                .map(location -> reference.withOrigin(location.module(), location.relativePath()))
-                .orElse(reference);
+        try {
+            String qualified = type.describe();
+            TypeRef reference = new TypeRef(shortName(qualified), qualified, true);
+            String rawQualifiedName = type.isReferenceType()
+                    ? type.asReferenceType().getQualifiedName() : qualified.replaceAll("<.*>", "");
+            return workspace.typeLocation(rawQualifiedName)
+                    .map(location -> reference.withOrigin(location.module(), location.relativePath()))
+                    .orElse(reference);
+        } catch (RuntimeException | LinkageError exception) {
+            return TypeRef.unresolved(expression == null ? "missing-expression" : expression.toString());
+        }
     }
 
     private TypeRef resolveClassType(ClassExpr expression) {
         try {
             String qualified = expression.getType().resolve().describe();
             return new TypeRef(shortName(qualified), qualified, true);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             return TypeRef.unresolved(expression.getTypeAsString());
         }
     }
