@@ -16,17 +16,54 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
 public final class DirectCopyAnalyzer {
-    private final BeanPropertyResolver propertyResolver = new BeanPropertyResolver();
+    private final BeanPropertyResolver propertyResolver;
+    private final BeanPropertyTraceLogger trace;
     private final TypeCompatibilityEngine compatibility = new TypeCompatibilityEngine();
 
+    public DirectCopyAnalyzer() {
+        this(BeanPropertyTraceLogger.silent());
+    }
+
+    public DirectCopyAnalyzer(Consumer<String> traceOutput) {
+        this(new BeanPropertyTraceLogger(traceOutput));
+    }
+
+    public DirectCopyAnalyzer(BeanPropertyTraceLogger trace) {
+        this.trace = trace;
+        this.propertyResolver = new BeanPropertyResolver(trace);
+    }
+
     public CopyFinding analyze(CopyCallSite call) {
-        if (call.form() == CopyCallForm.METHOD_REFERENCE
-                || call.sourceExpression() instanceof NullLiteralExpr
-                || call.targetExpression() instanceof NullLiteralExpr
-                || call.resolvedSourceType() == null || call.resolvedTargetType() == null) {
+        if (call.form() == CopyCallForm.METHOD_REFERENCE) {
+            trace.error("?", "method-reference-no-concrete-bean-types");
             return finding(call, FindingStatus.REVIEW, List.of());
+        }
+        if (call.sourceExpression() instanceof NullLiteralExpr) {
+            trace.error(call.sourceType().qualifiedName(), "source-null-literal");
+        }
+        if (call.targetExpression() instanceof NullLiteralExpr) {
+            trace.error(call.targetType().qualifiedName(), "target-null-literal");
+        }
+        if (call.sourceExpression() instanceof NullLiteralExpr || call.targetExpression() instanceof NullLiteralExpr) {
+            return finding(call, FindingStatus.REVIEW, List.of());
+        }
+        if (call.resolvedSourceType() == null) {
+            trace.error(call.sourceType().qualifiedName(), "source-type-unresolved");
+        }
+        if (call.resolvedTargetType() == null) {
+            trace.error(call.targetType().qualifiedName(), "target-type-unresolved");
+        }
+        if (call.resolvedSourceType() == null || call.resolvedTargetType() == null) {
+            return finding(call, FindingStatus.REVIEW, List.of());
+        }
+        if (call.resolvedSourceType().isTypeVariable()) {
+            trace.error(call.resolvedSourceType(), "source-type-variable");
+        }
+        if (call.resolvedTargetType().isTypeVariable()) {
+            trace.error(call.resolvedTargetType(), "target-type-variable");
         }
         if (call.resolvedSourceType().isTypeVariable() || call.resolvedTargetType().isTypeVariable()) {
             return finding(call, FindingStatus.REVIEW, List.of());

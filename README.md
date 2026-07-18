@@ -1,18 +1,20 @@
 # BeanUtils Risk Scanner CLI
 
-一个基于 Java 17 的独立命令行工具，用于扫描 Maven 单模块或多模块项目中的 Spring `BeanUtils.copyProperties` 调用，识别从 Spring 5.0.7 升级到 5.3.1 后因泛型检查变严格而产生的潜在复制变化。
+一个基于 Java 17 的独立命令行工具，用于编译并扫描 Maven 单模块或多模块项目中的 Spring `BeanUtils.copyProperties` 调用，识别从 Spring 5.0.7 升级到 5.3.1 后因泛型检查变严格而产生的潜在复制变化。
 
 扫描器只读取目标项目源码和本地 Maven 仓库，不修改业务代码，也不要求目标项目先升级到 JDK 17 或 Spring 5.3.1。
 
 ## 核心能力
 
-- 跨 Maven module 统一索引 Bean 和调用关系
+- 跨 Maven module 统一索引源码、编译后的 Bean 和调用关系
 - 识别直接调用、静态导入、Lambda、方法引用和常见项目内包装方法
 - 支持 `ignoreProperties`、数组常量和 `editable` 重载
 - 分析 List、Set、Map、Optional、PageInfo、自定义容器及嵌套泛型
 - 覆盖泛型数组、raw type、通配符、泛型继承和 getter/setter 组合
 - 输出 Source/Target JavaBean 属性并集，区分同名映射、同名不可复制和单边独有属性
 - 父类继承属性会参与映射，并显示 getter/setter 的实际声明类
+- 从 `target/classes` 读取 Lombok/其他注解处理器生成的 getter/setter
+- 扫描日志逐类打印全部属性、继承层次、声明类和证据来源
 - 输出完全离线的多页 HTML 审计文档和可选 JSON 数据
 - 报告第一列为结论，并展示位置、Source 类型、Target 类型及逐属性分析
 
@@ -22,7 +24,9 @@
 - 首次执行 Maven Wrapper 时可以访问 Maven Central
 - 待扫描项目的依赖最好已存在于本地 Maven 仓库
 
-扫描器不会调用 Maven 构建目标项目，也不会自动下载目标项目缺失的依赖。缺失依赖或局部源码无法解析时，工具会保留诊断并尽可能输出其余结果。
+CLI 会先执行目标项目的 Maven `compile`；指定 `--include-tests` 时执行 `test-compile`。它优先使用项目自己的 `mvnw` / `mvnw.cmd`，否则使用环境中的 `mvn`。Maven 会按项目自身配置处理 Lombok 等注解处理器和依赖下载。
+
+编译成功后，属性解析优先读取所有 module 的 `target/classes`（以及可选的 `target/test-classes`），源码仍负责定位调用位置和调用链。编译失败不会终止扫描：工具会打印 `COMPILE-ERROR ... fallback=source`，忽略可能陈旧的 class 并回退源码推断。
 
 ## 构建
 
@@ -70,6 +74,18 @@ java -jar target/beanutils-risk-scanner-cli.jar \
 | `--help` | 显示帮助 |
 | `--version` | 显示版本 |
 
+## 编译和属性解析日志
+
+CLI 默认把完整过程打印到标准输出：
+
+- `COMPILE` / `MAVEN` / `COMPILE-END`：Maven 编译命令、输出和结果。
+- `BEAN`：Bean 完整类型、继承层次以及证据来源。`compiled-class` 表示来自真实 class，`source-fallback` 表示源码回退。
+- `PROPERTY`：每个属性的 getter 类型、setter 类型和各自声明类，缺失值用 `-`。
+- `BEAN-END`：该 Bean 的完整属性数量，包括明确的零属性结果。
+- `BEAN-ERROR`：方法引用、类型变量、null 或无法解析类型的具体原因。
+
+同一个具体类型在一次扫描中只打印一次；父类泛型使用具体实参分别打印。需要留档时可把标准输出重定向到日志文件。Java API 的 `scan(ScanRequest)` 保持静默，接收 `Consumer<String>` 的重载用于获取相同追踪日志。
+
 ## 结论说明
 
 - `RISK`：擦除后的原始类型可赋值，但 Spring 5.3 的泛型感知检查会拒绝，属于升级行为变化。
@@ -103,10 +119,11 @@ HTML 报告是完全离线的多页文档，不依赖 CDN、Web 服务或外部 
 - `ignoreProperties` 字面量、varargs、数组常量
 - `editable` 重载
 - 跨 module Bean copy
+- Lombok/注解处理器生成访问器、父类继承访问器和父类泛型具体化
 
 ## 静态分析边界
 
-动态反射目标、运行期生成类、跨进程调用、任意复杂高阶函数和缺失依赖中的类型无法始终被静态证明。这些情况不会被标记为安全，而会以 `REVIEW` 或诊断信息展示。
+动态反射目标、只在运行期生成且未写入 Maven 编译输出的类、跨进程调用、任意复杂高阶函数和缺失依赖中的类型无法始终被静态证明。这些情况不会被标记为安全，而会以 `REVIEW` 或诊断信息展示。
 
 ## 上传到 GitHub
 

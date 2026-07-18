@@ -17,8 +17,13 @@ import java.util.List;
 
 public final class SourceIndexer {
     public SourceWorkspace index(ProjectModel project) throws Exception {
+        return index(project, false, false);
+    }
+
+    public SourceWorkspace index(ProjectModel project, boolean compiledClasses, boolean includeTests) throws Exception {
         List<Diagnostic> diagnostics = new ArrayList<>(project.diagnostics());
-        var typeSolver = new TypeSolverFactory().create(project, diagnostics);
+        var setup = new TypeSolverFactory().create(project, diagnostics, compiledClasses, includeTests);
+        var typeSolver = setup.solver();
         ParserConfiguration configuration = new ParserConfiguration()
                 .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17)
                 .setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8)
@@ -54,7 +59,7 @@ public final class SourceIndexer {
                         new SourceLocation(module, relative.toString(), 1, 1)));
             }
         }
-        return new SourceWorkspace(project, typeSolver, parsed, diagnostics);
+        return new SourceWorkspace(project, typeSolver, parsed, diagnostics, setup.classLoader());
     }
 
     private String module(ProjectModel project, Path file) {

@@ -8,10 +8,54 @@ import com.example.beanutils.scanner.source.SourceIndexer;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DirectCopyAnalyzerTest {
+    @Test
+    void tracesEveryResolvedBeanPropertyOnceWithMissingAccessorEvidence() throws Exception {
+        Path fixture = Path.of("src/test/resources/fixtures/copy-calls").toAbsolutePath();
+        var project = new MavenProjectLoader().load(fixture, false,
+                Path.of(System.getProperty("user.home"), ".m2", "repository"));
+        var workspace = new SourceIndexer().index(project);
+        var calls = new BeanUtilsCallDetector().discover(workspace);
+        var direct = calls.stream()
+                .filter(value -> value.code().equals("BeanUtils.copyProperties(source, target)"))
+                .findFirst().orElseThrow();
+        var missingSetter = calls.stream()
+                .filter(value -> value.code().contains("MissingSetterSource"))
+                .findFirst().orElseThrow();
+        var methodReference = calls.stream()
+                .filter(value -> value.form() == com.example.beanutils.scanner.discovery.CopyCallForm.METHOD_REFERENCE)
+                .findFirst().orElseThrow();
+        var lines = new ArrayList<String>();
+        var analyzer = new DirectCopyAnalyzer(lines::add);
+
+        analyzer.analyze(direct);
+        analyzer.analyze(direct);
+        analyzer.analyze(missingSetter);
+        analyzer.analyze(methodReference);
+
+        assertEquals(1, count(lines, "[BeanUtilsScanner][BEAN] type=example.CopyCalls.Source "));
+        assertEquals(1, count(lines, "[BeanUtilsScanner][BEAN] type=example.CopyCalls.Target "));
+        assertTrue(lines.stream().anyMatch(line -> line.contains("[PROPERTY] bean=example.CopyCalls.Source name=name")
+                && line.contains("readType=java.lang.String writeType=-")
+                && line.contains("getterOwner=example.CopyCalls.Source setterOwner=-")));
+        assertTrue(lines.stream().anyMatch(line -> line.contains("[PROPERTY] bean=example.CopyCalls.Target name=name")
+                && line.contains("readType=- writeType=java.lang.String")
+                && line.contains("getterOwner=- setterOwner=example.CopyCalls.Target")));
+        assertTrue(lines.stream().anyMatch(line -> line.contains("bean=example.CopyCalls.MissingSetterTarget name=externalId")
+                && line.contains("readType=java.lang.String writeType=-")
+                && line.contains("setterOwner=-")));
+        assertTrue(lines.stream().anyMatch(line -> line.equals(
+                "[BeanUtilsScanner][BEAN-END] type=example.CopyCalls.Source properties=2")));
+        assertTrue(lines.stream().noneMatch(line -> line.contains(" name=class ")));
+        assertTrue(lines.stream().anyMatch(line -> line.equals(
+                "[BeanUtilsScanner][BEAN-ERROR] type=? reason=method-reference-no-concrete-bean-types")));
+    }
+
     @Test
     void reportsMappedAndUnmatchedPropertiesForSafeCopy() throws Exception {
         Path fixture = Path.of("src/test/resources/fixtures/copy-calls").toAbsolutePath();
@@ -54,5 +98,9 @@ class DirectCopyAnalyzerTest {
             com.example.beanutils.scanner.model.CopyFinding finding, String name) {
         return finding.properties().stream().filter(value -> value.propertyName().equals(name))
                 .findFirst().orElseThrow();
+    }
+
+    private long count(ArrayList<String> lines, String prefix) {
+        return lines.stream().filter(line -> line.startsWith(prefix)).count();
     }
 }

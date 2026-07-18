@@ -13,6 +13,12 @@ import java.util.List;
 import java.util.Map;
 
 final class BeanPropertyResolver {
+    private final BeanPropertyTraceLogger trace;
+
+    BeanPropertyResolver(BeanPropertyTraceLogger trace) {
+        this.trace = trace;
+    }
+
     boolean canResolve(ResolvedType beanType) {
         try {
             return beanType != null && beanType.isReferenceType()
@@ -24,6 +30,16 @@ final class BeanPropertyResolver {
 
     Map<String, BeanProperty> resolve(ResolvedType beanType) {
         if (beanType == null || !beanType.isReferenceType()) {
+            trace.error(beanType, "not-reference-type");
+            return Map.of();
+        }
+        try {
+            if (beanType.asReferenceType().getTypeDeclaration().isEmpty()) {
+                trace.error(beanType, "missing-type-declaration");
+                return Map.of();
+            }
+        } catch (RuntimeException exception) {
+            trace.error(beanType, "type-declaration-resolution-failed");
             return Map.of();
         }
         Map<String, MutableProperty> properties = new LinkedHashMap<>();
@@ -46,7 +62,18 @@ final class BeanPropertyResolver {
         }
         Map<String, BeanProperty> result = new LinkedHashMap<>();
         properties.forEach((name, value) -> result.put(name, value.freeze(name)));
+        boolean compiledEvidence = hierarchy.stream()
+                .map(reference -> reference.getTypeDeclaration().orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(this::isCompiledDeclaration);
+        trace.resolved(beanType, hierarchy, result,
+                compiledEvidence ? "compiled-class" : "source-fallback");
         return result;
+    }
+
+    private boolean isCompiledDeclaration(ResolvedReferenceTypeDeclaration declaration) {
+        String implementation = declaration.getClass().getName();
+        return implementation.contains("reflectionmodel") || implementation.contains("javassistmodel");
     }
 
     private MethodUsage specialize(MethodUsage usage, ResolvedReferenceType reference) {

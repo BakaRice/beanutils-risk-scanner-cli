@@ -1,6 +1,7 @@
 package com.example.beanutils.scanner.callgraph;
 
 import com.example.beanutils.scanner.analysis.DirectCopyAnalyzer;
+import com.example.beanutils.scanner.analysis.BeanPropertyTraceLogger;
 import com.example.beanutils.scanner.discovery.CopyCallForm;
 import com.example.beanutils.scanner.discovery.CopyCallSite;
 import com.example.beanutils.scanner.model.CallChainStep;
@@ -30,6 +31,16 @@ import java.util.Map;
 import java.util.Set;
 
 public final class WrapperCallAnalyzer {
+    private final BeanPropertyTraceLogger trace;
+
+    public WrapperCallAnalyzer() {
+        this(BeanPropertyTraceLogger.silent());
+    }
+
+    public WrapperCallAnalyzer(BeanPropertyTraceLogger trace) {
+        this.trace = trace;
+    }
+
     public List<CopyFinding> analyze(SourceWorkspace workspace, List<CopyCallSite> directCalls) {
         Map<String, List<CopyCallSite>> seeds = new LinkedHashMap<>();
         for (CopyCallSite call : directCalls) {
@@ -40,7 +51,7 @@ public final class WrapperCallAnalyzer {
             }
         }
         List<CopyFinding> findings = new ArrayList<>();
-        DirectCopyAnalyzer analyzer = new DirectCopyAnalyzer();
+        DirectCopyAnalyzer analyzer = new DirectCopyAnalyzer(trace);
         for (ParsedSource source : workspace.parsedSources()) {
             for (MethodCallExpr call : source.compilationUnit().findAll(MethodCallExpr.class)) {
                 String resolvedKey = resolvedKey(call);

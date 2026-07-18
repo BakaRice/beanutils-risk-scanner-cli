@@ -21,11 +21,19 @@ public record SourceWorkspace(
         ProjectModel project,
         CombinedTypeSolver typeSolver,
         List<ParsedSource> parsedSources,
-        List<Diagnostic> diagnostics) {
+        List<Diagnostic> diagnostics,
+        AutoCloseable compiledClassLoader) implements AutoCloseable {
 
     public SourceWorkspace {
         parsedSources = List.copyOf(parsedSources);
         diagnostics = List.copyOf(diagnostics);
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (compiledClassLoader != null) {
+            compiledClassLoader.close();
+        }
     }
 
     public Optional<ResolvedReferenceTypeDeclaration> resolveType(String qualifiedName) {

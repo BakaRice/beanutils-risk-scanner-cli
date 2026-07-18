@@ -6,6 +6,7 @@ import com.example.beanutils.scanner.model.FindingStatus;
 import com.example.beanutils.scanner.report.HtmlReportWriter;
 import com.example.beanutils.scanner.report.JsonReportWriter;
 import com.example.beanutils.scanner.project.MavenSettingsReader;
+import com.example.beanutils.scanner.project.MavenProjectCompiler;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,7 +61,12 @@ public final class ScanCommand implements Callable<Integer> {
                     .orElse(Path.of(System.getProperty("user.home"), ".m2", "repository"));
         }
         Path html = output.toAbsolutePath().normalize();
-        var report = new BeanUtilsRiskScanner().scan(new ScanRequest(project.toAbsolutePath().normalize(), repository, includeTests));
+        Path normalizedProject = project.toAbsolutePath().normalize();
+        var compilation = new MavenProjectCompiler().compile(normalizedProject, repository, settings,
+                includeTests, System.out::println);
+        var report = new BeanUtilsRiskScanner().scan(
+                new ScanRequest(normalizedProject, repository, includeTests, compilation.success()),
+                System.out::println);
         new HtmlReportWriter().write(report, html);
         if (jsonOutput != null) {
             new JsonReportWriter().write(report, jsonOutput.toAbsolutePath().normalize());
