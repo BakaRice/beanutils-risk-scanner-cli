@@ -67,7 +67,7 @@ public final class BeanUtilsCallDetector {
         ResolvedType resolvedSource = resolvedType(sourceExpression);
         ResolvedType resolvedTarget = resolvedType(targetExpression);
         return new CopyCallSite(call, sourceExpression, targetExpression,
-                typeRef(resolvedSource, sourceExpression), typeRef(resolvedTarget, targetExpression),
+                typeRef(workspace, resolvedSource, sourceExpression), typeRef(workspace, resolvedTarget, targetExpression),
                 resolvedSource, resolvedTarget, ignored,
                 ignoresResolved, editable, exact, location(workspace, source, call), call.toString(),
                 containingMethod(call), ownerType(call), form);
@@ -142,12 +142,17 @@ public final class BeanUtilsCallDetector {
         }
     }
 
-    private TypeRef typeRef(ResolvedType type, Expression expression) {
+    private TypeRef typeRef(SourceWorkspace workspace, ResolvedType type, Expression expression) {
         if (type == null) {
             return TypeRef.unresolved(expression == null ? "missing-expression" : expression.toString());
         }
         String qualified = type.describe();
-        return new TypeRef(shortName(qualified), qualified, true);
+        TypeRef reference = new TypeRef(shortName(qualified), qualified, true);
+        String rawQualifiedName = type.isReferenceType()
+                ? type.asReferenceType().getQualifiedName() : qualified.replaceAll("<.*>", "");
+        return workspace.typeLocation(rawQualifiedName)
+                .map(location -> reference.withOrigin(location.module(), location.relativePath()))
+                .orElse(reference);
     }
 
     private TypeRef resolveClassType(ClassExpr expression) {

@@ -1,0 +1,6 @@
+<project><modelVersion>4.0.0</modelVersion><parent><groupId>fixture</groupId><artifactId>cross-module</artifactId><version>1</version></parent><artifactId>fixture-facade</artifactId>
+  <dependencies>
+    <dependency><groupId>fixture</groupId><artifactId>fixture-api</artifactId><version>1</version></dependency>
+    <dependency><groupId>org.springframework</groupId><artifactId>spring-beans</artifactId></dependency>
+  </dependencies>
+</project>

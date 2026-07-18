@@ -41,14 +41,25 @@ public final class HtmlReportWriter {
                     .append("<td><a class=\"location\" href=\"#\">")
                     .append(html(finding.location().display())).append("</a><small>")
                     .append(html(finding.module())).append("</small></td>")
-                    .append("<td><code>").append(html(finding.sourceType().qualifiedName())).append("</code></td>")
-                    .append("<td><code>").append(html(finding.targetType().qualifiedName())).append("</code></td>")
+                    .append(typeCell(finding.sourceType()))
+                    .append(typeCell(finding.targetType()))
                     .append("<td><details><summary>").append(html(finding.callForm())).append(" · ")
                     .append(finding.properties().size()).append(" 个属性</summary><div class=\"detail\">")
                     .append("<pre>").append(html(finding.code())).append("</pre>")
                     .append(propertyTable(finding)).append(chain(finding)).append("</div></details></td></tr>");
         }
         return rows.toString();
+    }
+
+    private String typeCell(com.example.beanutils.scanner.model.TypeRef type) {
+        StringBuilder cell = new StringBuilder("<td><code>")
+                .append(html(type.qualifiedName())).append("</code>");
+        if (!type.module().isBlank() || !type.sourcePath().isBlank()) {
+            cell.append("<small>").append(html(type.module()));
+            if (!type.module().isBlank() && !type.sourcePath().isBlank()) cell.append(" · ");
+            cell.append(html(type.sourcePath())).append("</small>");
+        }
+        return cell.append("</td>").toString();
     }
 
     private String propertyTable(CopyFinding finding) {

@@ -77,8 +77,8 @@ public final class WrapperCallAnalyzer {
         Expression targetExpression = call.getArguments().size() < 2 ? null : targetExpression(call.getArgument(1));
         ResolvedType sourceType = resolve(sourceExpression);
         ResolvedType targetType = resolveTarget(call.getArguments().size() < 2 ? null : call.getArgument(1), targetExpression);
-        return new CopyCallSite(call, sourceExpression, targetExpression, ref(sourceType, sourceExpression),
-                ref(targetType, targetExpression), sourceType, targetType, Set.of(), true, null, true,
+        return new CopyCallSite(call, sourceExpression, targetExpression, ref(workspace, sourceType, sourceExpression),
+                ref(workspace, targetType, targetExpression), sourceType, targetType, Set.of(), true, null, true,
                 location(workspace, source, call), call.toString(), containingMethod(call), ownerType(call), form);
     }
 
@@ -112,9 +112,14 @@ public final class WrapperCallAnalyzer {
         }
     }
 
-    private TypeRef ref(ResolvedType type, Expression expression) {
+    private TypeRef ref(SourceWorkspace workspace, ResolvedType type, Expression expression) {
         if (type == null) return TypeRef.unresolved(expression == null ? "?" : expression.toString());
-        return new TypeRef(shortName(type.describe()), type.describe(), true);
+        TypeRef reference = new TypeRef(shortName(type.describe()), type.describe(), true);
+        String rawQualifiedName = type.isReferenceType()
+                ? type.asReferenceType().getQualifiedName() : type.describe().replaceAll("<.*>", "");
+        return workspace.typeLocation(rawQualifiedName)
+                .map(location -> reference.withOrigin(location.module(), location.relativePath()))
+                .orElse(reference);
     }
 
     private CopyFinding asReview(CopyFinding base, CopyCallSite terminal, String reason) {

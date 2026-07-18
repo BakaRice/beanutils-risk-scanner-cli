@@ -1,0 +1,1 @@
+<project><modelVersion>4.0.0</modelVersion><parent><groupId>fixture</groupId><artifactId>cross-module</artifactId><version>1</version></parent><artifactId>fixture-api</artifactId></project>
