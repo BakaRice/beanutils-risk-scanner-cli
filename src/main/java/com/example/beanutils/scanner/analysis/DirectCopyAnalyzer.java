@@ -32,13 +32,24 @@ public final class DirectCopyAnalyzer {
         }
         Map<String, BeanProperty> sources = propertyResolver.resolve(call.resolvedSourceType());
         Map<String, BeanProperty> targets = propertyResolver.resolve(call.resolvedTargetType());
+        if (!propertyResolver.canResolve(call.resolvedSourceType())
+                || !propertyResolver.canResolve(call.resolvedTargetType())) {
+            return finding(call, FindingStatus.REVIEW, List.of());
+        }
         List<PropertyFinding> properties = new ArrayList<>();
         Set<String> ignoredMismatches = new LinkedHashSet<>();
         for (BeanProperty target : targets.values()) {
+            BeanProperty source = sources.get(target.name());
             if (target.writeType() == null) {
+                if (!target.name().equals("class") && source != null && source.readType() != null) {
+                    TypeRef targetType = target.readType() == null
+                            ? TypeRef.unresolved("缺少 setter") : target.readTypeRef();
+                    properties.add(new PropertyFinding(target.name(), source.readTypeRef(), targetType,
+                            FindingStatus.SAFE, false, "SKIPPED_NO_SETTER",
+                            "Target 属性缺少 public setter，Spring 5.0.7 和 5.3.1 都不会复制"));
+                }
                 continue;
             }
-            BeanProperty source = sources.get(target.name());
             if (source == null || source.readType() == null) {
                 continue;
             }

@@ -20,7 +20,7 @@ class BeanUtilsCallDetectorTest {
 
         List<CopyCallSite> calls = new BeanUtilsCallDetector().discover(workspace);
 
-        assertEquals(7, calls.size());
+        assertEquals(8, calls.size());
         assertTrue(calls.stream().anyMatch(call -> call.form() == CopyCallForm.IGNORE_PROPERTIES
                 && call.ignoredProperties().contains("items") && call.ignoredProperties().contains("tags")));
         assertTrue(calls.stream().anyMatch(call -> call.form() == CopyCallForm.EDITABLE));

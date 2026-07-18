@@ -53,7 +53,10 @@ public final class HtmlReportWriter {
 
     private String propertyTable(CopyFinding finding) {
         if (finding.properties().isEmpty()) {
-            return "<p class=\"muted\">类型无法完全解析，请人工检查该调用。</p>";
+            String message = finding.status() == com.example.beanutils.scanner.model.FindingStatus.REVIEW
+                    ? "类型或属性无法完全解析，请人工检查该调用。"
+                    : "未发现同名且可复制的 JavaBean 属性。";
+            return "<p class=\"muted\">" + message + "</p>";
         }
         StringBuilder result = new StringBuilder("<table class=\"properties\"><thead><tr><th>属性结论</th><th>属性</th><th>Source 属性类型</th><th>Target 属性类型</th><th>说明</th></tr></thead><tbody>");
         for (PropertyFinding property : finding.properties()) {

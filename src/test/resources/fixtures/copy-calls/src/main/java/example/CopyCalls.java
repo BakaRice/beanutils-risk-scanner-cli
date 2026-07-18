@@ -18,10 +18,13 @@ public class CopyCalls {
         BeanUtils.copyProperties(source, target, Editable.class);
         sources.forEach(value -> BeanUtils.copyProperties(value, target));
         BiConsumer<Object, Object> copier = BeanUtils::copyProperties;
+        BeanUtils.copyProperties(new MissingSetterSource(), new MissingSetterTarget());
         OtherBeanUtils.copyProperties(source, target);
     }
 
     public interface Editable { void setName(String name); }
     public static class Source { public String getName() { return ""; } }
     public static class Target implements Editable { public void setName(String name) { } }
+    public static class MissingSetterSource { public String getExternalId() { return "source"; } }
+    public static class MissingSetterTarget { public String getExternalId() { return "target"; } }
 }

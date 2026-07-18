@@ -13,6 +13,15 @@ import java.util.List;
 import java.util.Map;
 
 final class BeanPropertyResolver {
+    boolean canResolve(ResolvedType beanType) {
+        try {
+            return beanType != null && beanType.isReferenceType()
+                    && beanType.asReferenceType().getTypeDeclaration().isPresent();
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
     Map<String, BeanProperty> resolve(ResolvedType beanType) {
         if (beanType == null || !beanType.isReferenceType()) {
             return Map.of();
