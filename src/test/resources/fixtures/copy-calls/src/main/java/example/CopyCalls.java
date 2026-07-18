@@ -23,8 +23,15 @@ public class CopyCalls {
     }
 
     public interface Editable { void setName(String name); }
-    public static class Source { public String getName() { return ""; } }
-    public static class Target implements Editable { public void setName(String name) { } }
+    public static class Source {
+        public String getName() { return ""; }
+        public String getSourceOnly() { return ""; }
+    }
+    public static class Target implements Editable {
+        public void setName(String name) { }
+        public String getTargetOnly() { return ""; }
+        public void setTargetOnly(String value) { }
+    }
     public static class MissingSetterSource { public String getExternalId() { return "source"; } }
     public static class MissingSetterTarget { public String getExternalId() { return "target"; } }
 }

@@ -6,15 +6,16 @@ import com.example.beanutils.scanner.model.CallChainStep;
 import com.example.beanutils.scanner.model.CopyFinding;
 import com.example.beanutils.scanner.model.FindingStatus;
 import com.example.beanutils.scanner.model.PropertyFinding;
+import com.example.beanutils.scanner.model.PropertyMapping;
 import com.example.beanutils.scanner.model.TypeRef;
 import com.github.javaparser.ast.expr.NullLiteralExpr;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 public final class DirectCopyAnalyzer {
     private final BeanPropertyResolver propertyResolver = new BeanPropertyResolver();
@@ -38,35 +39,80 @@ public final class DirectCopyAnalyzer {
         }
         List<PropertyFinding> properties = new ArrayList<>();
         Set<String> ignoredMismatches = new LinkedHashSet<>();
-        for (BeanProperty target : targets.values()) {
-            BeanProperty source = sources.get(target.name());
-            if (target.writeType() == null) {
-                if (!target.name().equals("class") && source != null && source.readType() != null) {
-                    TypeRef targetType = target.readType() == null
-                            ? TypeRef.unresolved("缺少 setter") : target.readTypeRef();
-                    properties.add(new PropertyFinding(target.name(), source.readTypeRef(), targetType,
-                            FindingStatus.SAFE, false, "SKIPPED_NO_SETTER",
-                            "Target 属性缺少 public setter，Spring 5.0.7 和 5.3.1 都不会复制"));
-                }
+        Set<String> propertyNames = new TreeSet<>();
+        propertyNames.addAll(sources.keySet());
+        propertyNames.addAll(targets.keySet());
+        propertyNames.remove("class");
+        for (String propertyName : propertyNames) {
+            BeanProperty source = sources.get(propertyName);
+            BeanProperty target = targets.get(propertyName);
+            if (source == null) {
+                properties.add(targetOnly(target));
                 continue;
             }
-            if (source == null || source.readType() == null) {
+            if (target == null) {
+                properties.add(sourceOnly(source));
+                continue;
+            }
+            if (source.readType() == null || target.writeType() == null) {
+                properties.add(sameNameNotCopyable(source, target));
                 continue;
             }
             var decision = compatibility.decide(source.readType(), target.writeType());
-            boolean ignored = call.ignoredProperties().contains(target.name())
+            boolean ignored = call.ignoredProperties().contains(propertyName)
                     || (call.form() == CopyCallForm.EDITABLE && !editableAllows(call, target));
             FindingStatus status = ignored ? FindingStatus.IGNORED : decision.status();
             if (ignored && decision.status() == FindingStatus.RISK) {
-                ignoredMismatches.add(target.name());
+                ignoredMismatches.add(propertyName);
             }
-            properties.add(new PropertyFinding(target.name(), source.readTypeRef(), target.writeTypeRef(), status,
+            properties.add(new PropertyFinding(propertyName, source.readTypeRef(), target.writeTypeRef(),
+                    source.getterOwner(), target.setterOwner(), PropertyMapping.MAPPED, status,
                     decision.oldAssignable(), decision.newDecision(),
                     ignored ? "属性被当前 BeanUtils 重载显式排除；" + decision.reason() : decision.reason()));
         }
-        properties.sort(Comparator.comparing(PropertyFinding::propertyName));
         FindingStatus status = aggregate(call, properties, ignoredMismatches);
         return finding(call, status, properties);
+    }
+
+    private PropertyFinding sourceOnly(BeanProperty source) {
+        return new PropertyFinding(source.name(), propertyType(source, true), TypeRef.unresolved("Target 中不存在"),
+                propertyOwner(source, true), "", PropertyMapping.SOURCE_ONLY, FindingStatus.SAFE,
+                false, "NO_SAME_NAME_TARGET", "Source 属性在 Target 中没有同名 JavaBean 属性，两版本都不会复制");
+    }
+
+    private PropertyFinding targetOnly(BeanProperty target) {
+        return new PropertyFinding(target.name(), TypeRef.unresolved("Source 中不存在"), propertyType(target, false),
+                "", propertyOwner(target, false), PropertyMapping.TARGET_ONLY, FindingStatus.SAFE,
+                false, "NO_SAME_NAME_SOURCE", "Target 属性在 Source 中没有同名 JavaBean 属性，两版本都不会复制");
+    }
+
+    private PropertyFinding sameNameNotCopyable(BeanProperty source, BeanProperty target) {
+        boolean missingGetter = source.readType() == null;
+        boolean missingSetter = target.writeType() == null;
+        String decision = missingGetter && missingSetter ? "SKIPPED_NO_GETTER_OR_SETTER"
+                : missingGetter ? "SKIPPED_NO_GETTER" : "SKIPPED_NO_SETTER";
+        String reason = missingGetter && missingSetter
+                ? "属性同名，但 Source 缺少 public getter 且 Target 缺少 public setter，两版本都不会复制"
+                : missingGetter
+                ? "属性同名，但 Source 缺少 public getter，两版本都不会复制"
+                : "属性同名，但 Target 缺少 public setter，两版本都不会复制";
+        return new PropertyFinding(source.name(), propertyType(source, true), propertyType(target, false),
+                propertyOwner(source, true), propertyOwner(target, false),
+                PropertyMapping.SAME_NAME_NOT_COPYABLE, FindingStatus.SAFE, false, decision, reason);
+    }
+
+    private TypeRef propertyType(BeanProperty property, boolean sourceSide) {
+        if (sourceSide && property.readType() != null) return property.readTypeRef();
+        if (!sourceSide && property.writeType() != null) return property.writeTypeRef();
+        if (property.readType() != null) return property.readTypeRef();
+        if (property.writeType() != null) return property.writeTypeRef();
+        return TypeRef.unresolved("类型不可解析");
+    }
+
+    private String propertyOwner(BeanProperty property, boolean sourceSide) {
+        if (sourceSide && !property.getterOwner().isBlank()) return property.getterOwner();
+        if (!sourceSide && !property.setterOwner().isBlank()) return property.setterOwner();
+        return !property.getterOwner().isBlank() ? property.getterOwner() : property.setterOwner();
     }
 
     private boolean editableAllows(CopyCallSite call, BeanProperty property) {

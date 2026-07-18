@@ -11,6 +11,8 @@
 - 支持 `ignoreProperties`、数组常量和 `editable` 重载
 - 分析 List、Set、Map、Optional、PageInfo、自定义容器及嵌套泛型
 - 覆盖泛型数组、raw type、通配符、泛型继承和 getter/setter 组合
+- 输出 Source/Target JavaBean 属性并集，区分同名映射、同名不可复制和单边独有属性
+- 父类继承属性会参与映射，并显示 getter/setter 的实际声明类
 - 输出完全离线的 HTML 审计页面和可选 JSON 数据
 - 报告第一列为结论，并展示位置、Source 类型、Target 类型及逐属性分析
 
@@ -82,7 +84,9 @@ HTML 报告是单文件离线页面，不依赖 CDN、Web 服务或外部 JavaSc
 - 按 `RISK`、`REVIEW`、`IGNORED`、`SAFE` 筛选
 - 按位置、类型和代码全文搜索
 - 展开查看 Source/Target Bean 类型
-- 查看每个同名属性的 Source 类型和 Target 类型
+- 查看两个 Bean 的完整属性并集以及每个属性的 Source/Target 类型
+- 区分“同名已映射”“同名但不可复制”“Source 独有”“Target 独有”
+- 查看继承属性的实际声明类；默认展示全部属性，可切换为仅看差异
 - 查看旧版原始类型判断、5.3 泛型判断和具体原因
 - 查看项目内包装方法的已知调用链
 
