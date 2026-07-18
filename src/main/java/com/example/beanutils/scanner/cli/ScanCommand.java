@@ -22,7 +22,8 @@ public final class ScanCommand implements Callable<Integer> {
     @Option(names = "--project", required = true, description = "Maven project root")
     private Path project;
 
-    @Option(names = "--output", defaultValue = "beanutils-risk-report.html", description = "HTML report output")
+    @Option(names = "--output", defaultValue = "beanutils-risk-report.html",
+            description = "HTML report index output; also creates a sibling <base>-details directory")
     private Path output;
 
     @Option(names = "--json-output", description = "Optional JSON report output")

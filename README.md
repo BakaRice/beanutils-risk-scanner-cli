@@ -13,7 +13,7 @@
 - 覆盖泛型数组、raw type、通配符、泛型继承和 getter/setter 组合
 - 输出 Source/Target JavaBean 属性并集，区分同名映射、同名不可复制和单边独有属性
 - 父类继承属性会参与映射，并显示 getter/setter 的实际声明类
-- 输出完全离线的 HTML 审计页面和可选 JSON 数据
+- 输出完全离线的多页 HTML 审计文档和可选 JSON 数据
 - 报告第一列为结论，并展示位置、Source 类型、Target 类型及逐属性分析
 
 ## 环境要求
@@ -61,7 +61,7 @@ java -jar target/beanutils-risk-scanner-cli.jar \
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | Maven 根项目，必须包含 `pom.xml`，必填 |
-| `--output <path>` | HTML 报告路径；默认 `beanutils-risk-report.html` |
+| `--output <path>` | HTML 报告索引页；同时生成 `<文件名>-details/` 详情目录。默认 `beanutils-risk-report.html` |
 | `--json-output <path>` | 可选的结构化 JSON 报告 |
 | `--local-repository <path>` | Maven 本地仓库；优先级最高 |
 | `--settings <path>` | 从 Maven `settings.xml` 读取 `localRepository` |
@@ -79,18 +79,19 @@ java -jar target/beanutils-risk-scanner-cli.jar \
 
 ## HTML 报告
 
-HTML 报告是单文件离线页面，不依赖 CDN、Web 服务或外部 JavaScript。页面支持：
+HTML 报告是完全离线的多页文档，不依赖 CDN、Web 服务或外部 JavaScript。输出 `beanutils-risk-report.html` 时，会在旁边同时生成 `beanutils-risk-report-details/` 详情目录；移动或压缩报告时需要保留两者的相对位置。页面支持：
 
 - 按 `RISK`、`REVIEW`、`IGNORED`、`SAFE` 筛选
 - 按位置、类型和代码全文搜索
-- 展开查看 Source/Target Bean 类型
+- 点击任意主表行进入该调用自己的独立详情页
+- 分别查看 Source Bean 和 Target Bean 的全部已解析属性，不因映射失败或没有同名属性而隐藏
 - 查看两个 Bean 的完整属性并集以及每个属性的 Source/Target 类型
 - 区分“同名已映射”“同名但不可复制”“Source 独有”“Target 独有”
-- 查看继承属性的实际声明类；默认展示全部属性，可切换为仅看差异
+- 查看继承属性的实际声明类
 - 查看旧版原始类型判断、5.3 泛型判断和具体原因
 - 查看项目内包装方法的已知调用链
 
-主表列顺序为：结论、代码位置、Source 类型、Target 类型、详情。
+主表列顺序为：结论、代码位置、Source 类型、Target 类型、属性概览、详情入口。
 
 ## 已覆盖调用场景
 
