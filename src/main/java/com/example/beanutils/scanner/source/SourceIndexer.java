@@ -14,15 +14,21 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Consumer;
 
 public final class SourceIndexer {
     public SourceWorkspace index(ProjectModel project) throws Exception {
-        return index(project, false, false);
+        return index(project, false, false, unused -> { });
     }
 
     public SourceWorkspace index(ProjectModel project, boolean compiledClasses, boolean includeTests) throws Exception {
+        return index(project, compiledClasses, includeTests, unused -> { });
+    }
+
+    public SourceWorkspace index(ProjectModel project, boolean compiledClasses, boolean includeTests,
+                                 Consumer<String> traceOutput) throws Exception {
         List<Diagnostic> diagnostics = new ArrayList<>(project.diagnostics());
-        var setup = new TypeSolverFactory().create(project, diagnostics, compiledClasses, includeTests);
+        var setup = new TypeSolverFactory().create(project, diagnostics, compiledClasses, includeTests, traceOutput);
         var typeSolver = setup.solver();
         ParserConfiguration configuration = new ParserConfiguration()
                 .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17)

@@ -62,10 +62,9 @@ final class BeanPropertyResolver {
         }
         Map<String, BeanProperty> result = new LinkedHashMap<>();
         properties.forEach((name, value) -> result.put(name, value.freeze(name)));
-        boolean compiledEvidence = hierarchy.stream()
-                .map(reference -> reference.getTypeDeclaration().orElse(null))
-                .filter(java.util.Objects::nonNull)
-                .anyMatch(this::isCompiledDeclaration);
+        boolean compiledEvidence = beanType.asReferenceType().getTypeDeclaration()
+                .map(this::isCompiledDeclaration)
+                .orElse(false);
         trace.resolved(beanType, hierarchy, result,
                 compiledEvidence ? "compiled-class" : "source-fallback");
         return result;

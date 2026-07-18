@@ -20,7 +20,8 @@ public final class BeanUtilsRiskScanner {
 
     public ScanReport scan(ScanRequest request, Consumer<String> traceOutput) throws Exception {
         var project = new MavenProjectLoader().load(request.project(), request.includeTests(), request.localRepository());
-        try (var workspace = new SourceIndexer().index(project, request.useCompiledClasses(), request.includeTests())) {
+        try (var workspace = new SourceIndexer().index(project, request.useCompiledClasses(), request.includeTests(),
+                traceOutput)) {
             var calls = new BeanUtilsCallDetector().discover(workspace);
             var trace = new BeanPropertyTraceLogger(traceOutput);
             var analyzer = new DirectCopyAnalyzer(trace);

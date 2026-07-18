@@ -37,6 +37,29 @@ class CompiledClassAnalysisTest {
                 && line.contains("readType=java.util.List<java.lang.String>")));
     }
 
+    @Test
+    void fallsBackToSourceAndContinuesWhenACompiledMethodSignatureHasAMissingClass() throws Exception {
+        writeMissingSignatureProject();
+        compileMissingSignatureBeans();
+        Files.delete(project.resolve("target/classes/fixture/MissingType.class"));
+        var trace = new ArrayList<String>();
+
+        var report = new BeanUtilsRiskScanner().scan(new ScanRequest(project,
+                Path.of(System.getProperty("user.home"), ".m2", "repository"), false, true), trace::add);
+
+        assertEquals(2, report.findings().size());
+        assertTrue(report.findings().stream().anyMatch(finding -> finding.properties().stream()
+                .anyMatch(property -> property.propertyName().equals("missing"))));
+        assertTrue(report.findings().stream().anyMatch(finding -> finding.properties().stream()
+                .anyMatch(property -> property.propertyName().equals("name"))));
+        assertTrue(trace.stream().anyMatch(line -> line.contains("type=fixture.BrokenSource")
+                && line.contains("evidence=source-fallback")));
+        assertTrue(trace.stream().anyMatch(line -> line.contains("[CLASS-FALLBACK] type=fixture.BrokenSource")
+                && line.contains("missing=fixture.MissingType")));
+        assertTrue(trace.stream().anyMatch(line -> line.contains("type=fixture.HealthySource")
+                && line.contains("evidence=compiled-class")));
+    }
+
     private void writeProjectSources() throws Exception {
         Files.writeString(project.resolve("pom.xml"), """
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -89,5 +112,70 @@ class CompiledClassAnalysisTest {
         int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null,
                 "-d", output.toString(), source.toString(), target.toString());
         assertEquals(0, exit);
+    }
+
+    private void writeMissingSignatureProject() throws Exception {
+        Files.writeString(project.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture</groupId><artifactId>missing-signature</artifactId><version>1</version>
+                  <dependencies><dependency><groupId>org.springframework</groupId><artifactId>spring-beans</artifactId><version>5.0.7.RELEASE</version></dependency></dependencies>
+                </project>
+                """);
+        Path source = Files.createDirectories(project.resolve("src/main/java/fixture"));
+        Files.writeString(source.resolve("MissingType.java"), "package fixture; public class MissingType {}\n");
+        Files.writeString(source.resolve("BrokenSource.java"), """
+                package fixture;
+                public class BrokenSource {
+                    private java.util.List<MissingType> missing;
+                    public java.util.List<MissingType> getMissing() { return missing; }
+                    public void setMissing(java.util.List<MissingType> missing) { this.missing = missing; }
+                }
+                """);
+        Files.writeString(source.resolve("BrokenTarget.java"), """
+                package fixture;
+                public class BrokenTarget {
+                    private java.util.List<MissingType> missing;
+                    public java.util.List<MissingType> getMissing() { return missing; }
+                    public void setMissing(java.util.List<MissingType> missing) { this.missing = missing; }
+                }
+                """);
+        Files.writeString(source.resolve("HealthySource.java"), beanWithStringProperty("HealthySource"));
+        Files.writeString(source.resolve("HealthyTarget.java"), beanWithStringProperty("HealthyTarget"));
+        Files.writeString(source.resolve("CopyService.java"), """
+                package fixture;
+                import org.springframework.beans.BeanUtils;
+                public class CopyService {
+                    void copy(BrokenSource brokenSource, BrokenTarget brokenTarget,
+                              HealthySource healthySource, HealthyTarget healthyTarget) {
+                        BeanUtils.copyProperties(brokenSource, brokenTarget);
+                        BeanUtils.copyProperties(healthySource, healthyTarget);
+                    }
+                }
+                """);
+    }
+
+    private void compileMissingSignatureBeans() throws Exception {
+        Path source = project.resolve("src/main/java/fixture");
+        Path output = Files.createDirectories(project.resolve("target/classes"));
+        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null,
+                "-d", output.toString(),
+                source.resolve("MissingType.java").toString(),
+                source.resolve("BrokenSource.java").toString(),
+                source.resolve("BrokenTarget.java").toString(),
+                source.resolve("HealthySource.java").toString(),
+                source.resolve("HealthyTarget.java").toString());
+        assertEquals(0, exit);
+    }
+
+    private String beanWithStringProperty(String name) {
+        return """
+                package fixture;
+                public class %s {
+                    private String name;
+                    public String getName() { return name; }
+                    public void setName(String name) { this.name = name; }
+                }
+                """.formatted(name);
     }
 }

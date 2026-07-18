@@ -79,6 +79,7 @@ java -jar target/beanutils-risk-scanner-cli.jar \
 CLI 默认把完整过程打印到标准输出：
 
 - `COMPILE` / `MAVEN` / `COMPILE-END`：Maven 编译命令、输出和结果。
+- `CLASS-FALLBACK`：某个已编译类引用了当前 classpath 中缺失的类型；只把这个类回退到源码解析，扫描继续执行。
 - `BEAN`：Bean 完整类型、继承层次以及证据来源。`compiled-class` 表示来自真实 class，`source-fallback` 表示源码回退。
 - `PROPERTY`：每个属性的 getter 类型、setter 类型和各自声明类，缺失值用 `-`。
 - `BEAN-END`：该 Bean 的完整属性数量，包括明确的零属性结果。

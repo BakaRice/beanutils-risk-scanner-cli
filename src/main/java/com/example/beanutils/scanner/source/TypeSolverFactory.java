@@ -3,7 +3,6 @@ package com.example.beanutils.scanner.source;
 import com.example.beanutils.scanner.model.Diagnostic;
 import com.example.beanutils.scanner.project.ProjectModel;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.ClassLoaderTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
@@ -11,17 +10,18 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 public final class TypeSolverFactory {
     public Setup create(ProjectModel project, List<Diagnostic> diagnostics, boolean compiledClasses,
-                        boolean includeTests) {
+                        boolean includeTests, Consumer<String> traceOutput) {
         CombinedTypeSolver solver = new CombinedTypeSolver();
         solver.add(new ReflectionTypeSolver());
         CompiledProjectClassLoader classLoader = null;
         if (compiledClasses) {
             try {
                 classLoader = CompiledProjectClassLoader.create(project, includeTests);
-                solver.add(new ClassLoaderTypeSolver(classLoader));
+                solver.add(new ResilientClassLoaderTypeSolver(classLoader, traceOutput));
             } catch (Exception exception) {
                 diagnostics.add(Diagnostic.warning("CLASS_OUTPUT_INDEX_ERROR",
                         "Cannot index compiled project classes: " + exception.getMessage(), null));
