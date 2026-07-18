@@ -19,45 +19,61 @@ final class BeanPropertyResolver {
         this.trace = trace;
     }
 
-    boolean canResolve(ResolvedType beanType) {
-        try {
-            return beanType != null && beanType.isReferenceType()
-                    && beanType.asReferenceType().getTypeDeclaration().isPresent();
-        } catch (RuntimeException exception) {
-            return false;
-        }
-    }
-
-    Map<String, BeanProperty> resolve(ResolvedType beanType) {
+    BeanPropertyResolution resolve(ResolvedType beanType) {
         if (beanType == null || !beanType.isReferenceType()) {
             trace.error(beanType, "not-reference-type");
-            return Map.of();
+            trace.error(beanType, "property-model-incomplete");
+            return BeanPropertyResolution.incomplete();
         }
         try {
             if (beanType.asReferenceType().getTypeDeclaration().isEmpty()) {
                 trace.error(beanType, "missing-type-declaration");
-                return Map.of();
+                trace.error(beanType, "property-model-incomplete");
+                return BeanPropertyResolution.incomplete();
             }
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | LinkageError exception) {
             trace.error(beanType, "type-declaration-resolution-failed");
-            return Map.of();
+            trace.error(beanType, "property-model-incomplete");
+            return BeanPropertyResolution.incomplete();
         }
+        boolean complete = true;
         Map<String, MutableProperty> properties = new LinkedHashMap<>();
         List<ResolvedReferenceType> hierarchy = new ArrayList<>();
         hierarchy.add(beanType.asReferenceType());
         try {
             hierarchy.addAll(beanType.asReferenceType().getAllAncestors());
-        } catch (RuntimeException ignored) {
-            // A partially resolved external hierarchy still leaves local methods usable.
+        } catch (RuntimeException | LinkageError exception) {
+            complete = false;
+            trace.error(beanType, "ancestor-resolution-failed");
         }
         for (ResolvedReferenceType reference : hierarchy) {
-            ResolvedReferenceTypeDeclaration declaration = reference.getTypeDeclaration().orElse(null);
-            if (declaration == null) {
+            ResolvedReferenceTypeDeclaration declaration;
+            try {
+                declaration = reference.getTypeDeclaration().orElse(null);
+            } catch (RuntimeException | LinkageError exception) {
+                complete = false;
                 continue;
             }
-            for (MethodUsage usage : declaration.getDeclaredMethods().stream().map(MethodUsage::new).toList()) {
-                MethodUsage specialized = specialize(usage, reference);
-                add(properties, specialized, declaration.getQualifiedName());
+            if (declaration == null) {
+                complete = false;
+                continue;
+            }
+            List<MethodUsage> methods;
+            try {
+                methods = declaration.getDeclaredMethods().stream().map(MethodUsage::new).toList();
+            } catch (RuntimeException | LinkageError exception) {
+                complete = false;
+                continue;
+            }
+            for (MethodUsage usage : methods) {
+                try {
+                    MethodUsage specialized = specialize(usage, reference);
+                    if (!add(properties, specialized, declaration.getQualifiedName())) {
+                        complete = false;
+                    }
+                } catch (RuntimeException | LinkageError exception) {
+                    complete = false;
+                }
             }
         }
         Map<String, BeanProperty> result = new LinkedHashMap<>();
@@ -67,7 +83,10 @@ final class BeanPropertyResolver {
                 .orElse(false);
         trace.resolved(beanType, hierarchy, result,
                 compiledEvidence ? "compiled-class" : "source-fallback");
-        return result;
+        if (!complete) {
+            trace.error(beanType, "property-model-incomplete");
+        }
+        return new BeanPropertyResolution(result, complete);
     }
 
     private boolean isCompiledDeclaration(ResolvedReferenceTypeDeclaration declaration) {
@@ -83,26 +102,27 @@ final class BeanPropertyResolver {
         return specialized;
     }
 
-    private void add(Map<String, MutableProperty> properties, MethodUsage method, String owner) {
+    private boolean add(Map<String, MutableProperty> properties, MethodUsage method, String owner) {
         try {
             if (!method.getDeclaration().accessSpecifier().asString().equals("public")
                     || method.getDeclaration().isStatic()) {
-                return;
+                return true;
             }
-        } catch (RuntimeException ignored) {
-            return;
-        }
-        String name = method.getName();
-        if (name.startsWith("get") && name.length() > 3 && method.getNoParams() == 0
-                && !method.returnType().isVoid()) {
-            properties.computeIfAbsent(decap(name.substring(3)), unused -> new MutableProperty())
-                    .read(method.returnType(), owner);
-        } else if (name.startsWith("is") && name.length() > 2 && method.getNoParams() == 0) {
-            properties.computeIfAbsent(decap(name.substring(2)), unused -> new MutableProperty())
-                    .read(method.returnType(), owner);
-        } else if (name.startsWith("set") && name.length() > 3 && method.getNoParams() == 1) {
-            properties.computeIfAbsent(decap(name.substring(3)), unused -> new MutableProperty())
-                    .write(method.getParamType(0), owner);
+            String name = method.getName();
+            if (name.startsWith("get") && name.length() > 3 && method.getNoParams() == 0
+                    && !method.returnType().isVoid()) {
+                properties.computeIfAbsent(decap(name.substring(3)), unused -> new MutableProperty())
+                        .read(method.returnType(), owner);
+            } else if (name.startsWith("is") && name.length() > 2 && method.getNoParams() == 0) {
+                properties.computeIfAbsent(decap(name.substring(2)), unused -> new MutableProperty())
+                        .read(method.returnType(), owner);
+            } else if (name.startsWith("set") && name.length() > 3 && method.getNoParams() == 1) {
+                properties.computeIfAbsent(decap(name.substring(3)), unused -> new MutableProperty())
+                        .write(method.getParamType(0), owner);
+            }
+            return true;
+        } catch (RuntimeException | LinkageError exception) {
+            return false;
         }
     }
 

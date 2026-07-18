@@ -13,7 +13,6 @@ import com.github.javaparser.ast.expr.NullLiteralExpr;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
@@ -68,12 +67,10 @@ public final class DirectCopyAnalyzer {
         if (call.resolvedSourceType().isTypeVariable() || call.resolvedTargetType().isTypeVariable()) {
             return finding(call, FindingStatus.REVIEW, List.of());
         }
-        Map<String, BeanProperty> sources = propertyResolver.resolve(call.resolvedSourceType());
-        Map<String, BeanProperty> targets = propertyResolver.resolve(call.resolvedTargetType());
-        if (!propertyResolver.canResolve(call.resolvedSourceType())
-                || !propertyResolver.canResolve(call.resolvedTargetType())) {
-            return finding(call, FindingStatus.REVIEW, List.of());
-        }
+        BeanPropertyResolution sourceResolution = propertyResolver.resolve(call.resolvedSourceType());
+        BeanPropertyResolution targetResolution = propertyResolver.resolve(call.resolvedTargetType());
+        var sources = sourceResolution.properties();
+        var targets = targetResolution.properties();
         List<PropertyFinding> properties = new ArrayList<>();
         Set<String> ignoredMismatches = new LinkedHashSet<>();
         Set<String> propertyNames = new TreeSet<>();
@@ -107,7 +104,8 @@ public final class DirectCopyAnalyzer {
                     decision.oldAssignable(), decision.newDecision(),
                     ignored ? "属性被当前 BeanUtils 重载显式排除；" + decision.reason() : decision.reason()));
         }
-        FindingStatus status = aggregate(call, properties, ignoredMismatches);
+        FindingStatus status = aggregate(call, properties, ignoredMismatches,
+                sourceResolution.complete() && targetResolution.complete());
         return finding(call, status, properties);
     }
 
@@ -160,12 +158,13 @@ public final class DirectCopyAnalyzer {
         return editable.equals(property.setterOwner());
     }
 
-    private FindingStatus aggregate(CopyCallSite call, List<PropertyFinding> properties, Set<String> ignoredMismatches) {
-        if (!call.resolutionComplete() || !call.ignoredPropertiesResolved()) {
-            return FindingStatus.REVIEW;
-        }
+    private FindingStatus aggregate(CopyCallSite call, List<PropertyFinding> properties,
+                                    Set<String> ignoredMismatches, boolean propertyModelsComplete) {
         if (properties.stream().anyMatch(property -> property.status() == FindingStatus.RISK)) {
             return FindingStatus.RISK;
+        }
+        if (!call.resolutionComplete() || !call.ignoredPropertiesResolved() || !propertyModelsComplete) {
+            return FindingStatus.REVIEW;
         }
         if (properties.stream().anyMatch(property -> property.status() == FindingStatus.REVIEW)) {
             return FindingStatus.REVIEW;
