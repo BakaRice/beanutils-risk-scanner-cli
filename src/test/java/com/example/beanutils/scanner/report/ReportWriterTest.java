@@ -43,6 +43,9 @@ class ReportWriterTest {
         assertTrue(html.contains("id=\"module-filter\""));
         assertTrue(html.contains("id=\"property-problem-only\""));
         assertTrue(html.contains("aria-live=\"polite\""));
+        assertTrue(html.contains("<td class=\"location-cell\" title=\"Facade/src/A.java:12\">"));
+        assertTrue(html.contains("<strong class=\"file\">A.java:12</strong><small class=\"location-module\">Facade</small>"));
+        assertFalse(html.contains("Facade · Facade/src/A.java"));
         assertFalse(html.contains("<details>"));
         assertFalse(html.contains("http://"));
         assertFalse(html.contains("https://"));
