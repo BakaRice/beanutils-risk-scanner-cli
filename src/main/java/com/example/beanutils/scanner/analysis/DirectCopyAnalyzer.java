@@ -7,6 +7,7 @@ import com.example.beanutils.scanner.model.CopyFinding;
 import com.example.beanutils.scanner.model.FindingStatus;
 import com.example.beanutils.scanner.model.PropertyFinding;
 import com.example.beanutils.scanner.model.PropertyMapping;
+import com.example.beanutils.scanner.model.ReviewReason;
 import com.example.beanutils.scanner.model.TypeRef;
 import com.github.javaparser.ast.expr.NullLiteralExpr;
 
@@ -38,7 +39,10 @@ public final class DirectCopyAnalyzer {
     public CopyFinding analyze(CopyCallSite call) {
         if (call.form() == CopyCallForm.METHOD_REFERENCE) {
             trace.error("?", "method-reference-no-concrete-bean-types");
-            return finding(call, FindingStatus.REVIEW, List.of());
+            return finding(call, FindingStatus.REVIEW, List.of(), List.of(new ReviewReason(
+                    "METHOD_REFERENCE_TYPES_UNKNOWN",
+                    "BeanUtils.copyProperties 以方法引用传递，静态扫描无法恢复每次执行时实际的 Source Bean 和 Target Bean 类型",
+                    "CALL")));
         }
         if (call.sourceExpression() instanceof NullLiteralExpr) {
             trace.error(call.sourceType().qualifiedName(), "source-null-literal");
@@ -47,7 +51,12 @@ public final class DirectCopyAnalyzer {
             trace.error(call.targetType().qualifiedName(), "target-null-literal");
         }
         if (call.sourceExpression() instanceof NullLiteralExpr || call.targetExpression() instanceof NullLiteralExpr) {
-            return finding(call, FindingStatus.REVIEW, List.of());
+            List<ReviewReason> reasons = new ArrayList<>();
+            if (call.sourceExpression() instanceof NullLiteralExpr) reasons.add(new ReviewReason("SOURCE_NULL_LITERAL",
+                    "Source 参数是 null 字面量，无法建立 Source Bean 属性模型", "SOURCE"));
+            if (call.targetExpression() instanceof NullLiteralExpr) reasons.add(new ReviewReason("TARGET_NULL_LITERAL",
+                    "Target 参数是 null 字面量，无法建立 Target Bean 属性模型", "TARGET"));
+            return finding(call, FindingStatus.REVIEW, List.of(), reasons);
         }
         if (call.resolvedSourceType() == null) {
             trace.error(call.sourceType().qualifiedName(), "source-type-unresolved");
@@ -56,7 +65,14 @@ public final class DirectCopyAnalyzer {
             trace.error(call.targetType().qualifiedName(), "target-type-unresolved");
         }
         if (call.resolvedSourceType() == null || call.resolvedTargetType() == null) {
-            return finding(call, FindingStatus.REVIEW, List.of());
+            List<ReviewReason> reasons = resolutionIssues(call);
+            if (call.resolvedSourceType() == null) reasons.add(new ReviewReason("SOURCE_TYPE_UNRESOLVED",
+                    "Source 表达式 “" + expression(call.sourceExpression()) + "” 的具体 Java 类型无法解析，不能列出其全部属性",
+                    "SOURCE"));
+            if (call.resolvedTargetType() == null) reasons.add(new ReviewReason("TARGET_TYPE_UNRESOLVED",
+                    "Target 表达式 “" + expression(call.targetExpression()) + "” 的具体 Java 类型无法解析，不能列出其全部属性",
+                    "TARGET"));
+            return finding(call, FindingStatus.REVIEW, List.of(), reasons);
         }
         if (call.resolvedSourceType().isTypeVariable()) {
             trace.error(call.resolvedSourceType(), "source-type-variable");
@@ -65,7 +81,14 @@ public final class DirectCopyAnalyzer {
             trace.error(call.resolvedTargetType(), "target-type-variable");
         }
         if (call.resolvedSourceType().isTypeVariable() || call.resolvedTargetType().isTypeVariable()) {
-            return finding(call, FindingStatus.REVIEW, List.of());
+            List<ReviewReason> reasons = new ArrayList<>();
+            if (call.resolvedSourceType().isTypeVariable()) reasons.add(new ReviewReason("SOURCE_TYPE_VARIABLE",
+                    "Source 的静态类型是类型变量 “" + call.resolvedSourceType().describe()
+                            + "”，调用点无法确定实际 Bean 类型和完整属性", "SOURCE"));
+            if (call.resolvedTargetType().isTypeVariable()) reasons.add(new ReviewReason("TARGET_TYPE_VARIABLE",
+                    "Target 的静态类型是类型变量 “" + call.resolvedTargetType().describe()
+                            + "”，调用点无法确定实际 Bean 类型和完整属性", "TARGET"));
+            return finding(call, FindingStatus.REVIEW, List.of(), reasons);
         }
         BeanPropertyResolution sourceResolution = propertyResolver.resolve(call.resolvedSourceType());
         BeanPropertyResolution targetResolution = propertyResolver.resolve(call.resolvedTargetType());
@@ -106,7 +129,9 @@ public final class DirectCopyAnalyzer {
         }
         FindingStatus status = aggregate(call, properties, ignoredMismatches,
                 sourceResolution.complete() && targetResolution.complete());
-        return finding(call, status, properties);
+        List<ReviewReason> reviewReasons = status == FindingStatus.REVIEW
+                ? reviewReasons(call, sourceResolution, targetResolution, properties) : List.of();
+        return finding(call, status, properties, reviewReasons);
     }
 
     private PropertyFinding sourceOnly(BeanProperty source) {
@@ -179,9 +204,65 @@ public final class DirectCopyAnalyzer {
         return FindingStatus.SAFE;
     }
 
-    private CopyFinding finding(CopyCallSite call, FindingStatus status, List<PropertyFinding> properties) {
+    private List<ReviewReason> reviewReasons(CopyCallSite call, BeanPropertyResolution sourceResolution,
+                                             BeanPropertyResolution targetResolution,
+                                             List<PropertyFinding> properties) {
+        List<ReviewReason> reasons = resolutionIssues(call);
+        if (!call.resolutionComplete() && call.resolutionIssues().isEmpty()) {
+            reasons.add(new ReviewReason("CALL_RESOLUTION_INCOMPLETE",
+                    "无法通过符号解析确认当前 copyProperties 调用的声明方法确实是 Spring BeanUtils；本次仅根据 import 和调用语法识别",
+                    "CALL"));
+        }
+        if (!call.ignoredPropertiesResolved()) {
+            reasons.add(new ReviewReason("IGNORE_PROPERTIES_UNRESOLVED",
+                    "ignoreProperties 参数不是可静态确定的字符串集合，无法确认哪些同名属性会被排除", "CALL"));
+        }
+        addPropertyModelReasons(reasons, "SOURCE", call.sourceType(), sourceResolution);
+        addPropertyModelReasons(reasons, "TARGET", call.targetType(), targetResolution);
+        for (PropertyFinding property : properties) {
+            if (property.status() != FindingStatus.REVIEW) continue;
+            String code = property.reason().contains("raw type")
+                    ? "RAW_GENERIC_PROPERTY" : "PROPERTY_COMPATIBILITY_UNKNOWN";
+            reasons.add(new ReviewReason(code,
+                    "同名属性 “" + property.propertyName() + "” 的兼容性无法确定：" + property.reason(),
+                    "PROPERTY", property.propertyName()));
+        }
+        return List.copyOf(new LinkedHashSet<>(reasons));
+    }
+
+    private void addPropertyModelReasons(List<ReviewReason> reasons, String side, TypeRef type,
+                                         BeanPropertyResolution resolution) {
+        if (resolution.complete()) return;
+        String label = side.equals("SOURCE") ? "Source" : "Target";
+        if (resolution.issues().isEmpty()) {
+            reasons.add(new ReviewReason(side + "_PROPERTY_MODEL_INCOMPLETE",
+                    label + " Bean “" + type.qualifiedName() + "” 的类型声明、继承链或 getter/setter 未能完整解析",
+                    side));
+            return;
+        }
+        for (String issue : resolution.issues()) {
+            reasons.add(new ReviewReason(side + "_PROPERTY_MODEL_INCOMPLETE",
+                    label + " Bean “" + type.qualifiedName() + "” 的属性模型不完整：" + issue, side));
+        }
+    }
+
+    private List<ReviewReason> resolutionIssues(CopyCallSite call) {
+        List<ReviewReason> reasons = new ArrayList<>();
+        for (String issue : call.resolutionIssues()) {
+            String subject = issue.startsWith("Source") ? "SOURCE" : issue.startsWith("Target") ? "TARGET" : "CALL";
+            reasons.add(new ReviewReason("SYMBOL_RESOLUTION_FAILED", issue, subject));
+        }
+        return reasons;
+    }
+
+    private String expression(Object expression) {
+        return expression == null ? "<不存在>" : expression.toString();
+    }
+
+    private CopyFinding finding(CopyCallSite call, FindingStatus status, List<PropertyFinding> properties,
+                                List<ReviewReason> reviewReasons) {
         List<CallChainStep> chain = List.of(new CallChainStep(call.location(), call.containingMethod(), call.ownerType()));
         return new CopyFinding(status, call.location(), call.code(), call.sourceType(), call.targetType(), properties,
-                chain, call.form().name(), call.location().module());
+                chain, call.form().name(), call.location().module(), reviewReasons);
     }
 }

@@ -96,6 +96,8 @@ CLI 默认把完整过程打印到标准输出：
 - `IGNORED`：潜在差异字段被 `ignoreProperties` 或 `editable` 显式排除。
 - `REVIEW`：raw type、类型变量、方法引用、反射、包装方法、高阶函数、null 参数，或 Source/Target 任一属性模型、继承链、方法签名未能完整解析，需要人工复核。无法完成对比的结果绝不会标记为 `SAFE`。
 
+每条 `REVIEW` 都包含至少一个结构化原因：稳定的 `code`、明确中文 `message`、影响对象 `subject`（`CALL` / `SOURCE` / `TARGET` / `PROPERTY`）以及可选的 `propertyName`。HTML 主表在结论列直接显示首要原因，详情页列出全部原因；JSON 的 `reviewReasons` 保留相同信息。依赖或继承类型缺失时，原因会尽可能包含底层异常和具体缺失类型，例如 `com.baomidou.mybatisplus.service.IService`。若内部代码意外产生无原因的 `REVIEW`，会以 `REVIEW_REASON_MISSING` 标记扫描器诊断缺口，不会伪装为正常结论。
+
 ## HTML 报告
 
 HTML 报告是完全离线的多页文档，不依赖 CDN、Web 服务或外部 JavaScript。输出 `beanutils-risk-report.html` 时，会在旁边同时生成 `beanutils-risk-report-details/` 详情目录；移动或压缩报告时需要保留两者的相对位置。页面支持：

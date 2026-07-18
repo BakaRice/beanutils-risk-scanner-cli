@@ -26,6 +26,12 @@ class IncompletePropertyResolutionTest {
 
         assertEquals(1, report.findings().size());
         assertEquals(FindingStatus.REVIEW, report.findings().get(0).status());
+        assertTrue(report.findings().get(0).reviewReasons().stream()
+                .anyMatch(reason -> reason.code().contains("PROPERTY_MODEL_INCOMPLETE")
+                        && reason.message().contains("missing.ExternalBase")),
+                () -> report.findings().get(0).reviewReasons().toString());
+        assertTrue(report.findings().get(0).reviewReasons().stream()
+                .noneMatch(reason -> reason.code().equals("REVIEW_REASON_MISSING")));
         assertTrue(trace.stream().anyMatch(line -> line.contains("[BEAN-ERROR] type=fixture.Source")
                 && line.contains("reason=property-model-incomplete")));
     }

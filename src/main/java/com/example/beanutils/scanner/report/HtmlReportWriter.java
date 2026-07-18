@@ -7,6 +7,7 @@ import com.example.beanutils.scanner.model.PropertyFinding;
 import com.example.beanutils.scanner.model.PropertyMapping;
 import com.example.beanutils.scanner.model.ScanReport;
 import com.example.beanutils.scanner.model.TypeRef;
+import com.example.beanutils.scanner.model.ReviewReason;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -95,7 +96,8 @@ public final class HtmlReportWriter {
                     .append("\" data-module=\"").append(attribute(finding.module()))
                     .append("\" data-search=\"").append(attribute(searchText(finding).toLowerCase(Locale.ROOT)))
                     .append("\">")
-                    .append("<td>").append(status(finding.status())).append("</td>")
+                    .append("<td class=\"conclusion-cell\">").append(status(finding.status()))
+                    .append(primaryReviewReason(finding)).append("</td>")
                     .append("<td class=\"location-cell\" title=\"")
                     .append(attribute(finding.location().relativePath())).append(":")
                     .append(finding.location().line()).append("\"><strong class=\"file\">")
@@ -127,6 +129,7 @@ public final class HtmlReportWriter {
                 <title>%s · BeanUtils 调用详情</title><style>%s</style></head><body class="detail-page"><main class="detail-shell">
                 <nav class="detail-nav" aria-label="详情导航"><div>%s</div><div class="pager">%s%s</div></nav>
                 <header class="detail-header"><div class="detail-heading"><div class="detail-kicker">调用 %d / %d</div><div class="detail-title-line">%s<h1>%s</h1></div><p>Module：%s <span>·</span> 调用形式：%s</p></div><div class="verdict-card %s"><span>扫描结论</span><b>%s</b><small>%s</small></div></header>
+                %s
                 <section class="detail-section"><div class="section-heading"><div><span class="section-index">01</span><h2>调用现场</h2></div></div><pre class="code-block"><code>%s</code></pre><div class="bean-types">%s%s</div></section>
                 <section class="detail-section property-section" id="source-properties"><div class="section-heading"><div><span class="section-index">02</span><h2>Source Bean 全部属性 · %d 个</h2></div><p>不论是否存在 Target 同名属性，全部列出</p></div>%s</section>
                 <section class="detail-section property-section" id="target-properties"><div class="section-heading"><div><span class="section-index">03</span><h2>Target Bean 全部属性 · %d 个</h2></div><p>不论是否存在 Source 同名属性，全部列出</p></div>%s</section>
@@ -137,7 +140,7 @@ public final class HtmlReportWriter {
                 """.formatted(html(location), sharedCss(), back, previous, next, index + 1, report.findings().size(),
                 status(finding.status()), html(location), html(finding.module().isBlank() ? "-" : finding.module()),
                 html(finding.callForm()), finding.status().name().toLowerCase(Locale.ROOT), finding.status(),
-                html(statusDescription(finding.status())), html(finding.code()),
+                html(verdictDescription(finding)), reviewReasonsSection(finding), html(finding.code()),
                 typeCard("Source Bean", finding.sourceType()), typeCard("Target Bean", finding.targetType()),
                 sourceProperties.size(), sidePropertyTable(sourceProperties, true), targetProperties.size(),
                 sidePropertyTable(targetProperties, false), finding.properties().size(), mappingTable(finding),
@@ -233,7 +236,41 @@ public final class HtmlReportWriter {
                     .append(property.mapping()).append(' ').append(property.sourceType().qualifiedName()).append(' ')
                     .append(property.targetType().qualifiedName()).append(' ').append(property.reason());
         }
+        for (ReviewReason reason : finding.reviewReasons()) {
+            search.append(' ').append(reason.code()).append(' ').append(reason.subject()).append(' ')
+                    .append(reason.propertyName()).append(' ').append(reason.message());
+        }
         return search.toString();
+    }
+
+    private String primaryReviewReason(CopyFinding finding) {
+        if (finding.status() != FindingStatus.REVIEW || finding.reviewReasons().isEmpty()) return "";
+        ReviewReason reason = finding.reviewReasons().get(0);
+        return "<small class=\"review-primary\"><b>" + html(reason.code()) + "</b>"
+                + html(reason.message()) + "</small>";
+    }
+
+    private String reviewReasonsSection(CopyFinding finding) {
+        if (finding.status() != FindingStatus.REVIEW || finding.reviewReasons().isEmpty()) return "";
+        StringBuilder items = new StringBuilder();
+        for (ReviewReason reason : finding.reviewReasons()) {
+            String scope = reason.subject() + (reason.propertyName().isBlank()
+                    ? "" : " · 属性 " + reason.propertyName());
+            items.append("<li><div><code>").append(html(reason.code())).append("</code><span>")
+                    .append(html(scope)).append("</span></div><p>").append(html(reason.message())).append("</p></li>");
+        }
+        return "<section class=\"detail-section review-reasons-section\" id=\"review-reasons\">"
+                + "<div class=\"section-heading\"><div><span class=\"section-index review-index\">!</span>"
+                + "<h2>为什么需要 REVIEW · " + finding.reviewReasons().size() + " 条明确原因</h2></div>"
+                + "<p>这些证据缺口使扫描器不能负责任地返回 SAFE</p></div>"
+                + "<ol class=\"review-reason-list\">" + items + "</ol></section>";
+    }
+
+    private String verdictDescription(CopyFinding finding) {
+        if (finding.status() == FindingStatus.REVIEW && !finding.reviewReasons().isEmpty()) {
+            return finding.reviewReasons().get(0).message();
+        }
+        return statusDescription(finding.status());
     }
 
     private String propertySummary(CopyFinding finding) {
@@ -332,6 +369,7 @@ public final class HtmlReportWriter {
                 .status{display:inline-flex;align-items:center;justify-content:center;min-width:66px;border-radius:999px;padding:3px 8px;color:#fff;font-size:10px;font-weight:850;letter-spacing:.04em}.status.risk{background:var(--risk)}.status.review{background:var(--review)}.status.ignored{background:var(--ignored)}.status.safe{background:var(--safe)}.mapping{display:inline-block;border:1px solid var(--line);border-radius:5px;padding:2px 7px;background:#f8fafc;color:#536075;font-size:10px;white-space:nowrap}.mapping.mapped{border-color:#afdac8;background:var(--safe-soft);color:var(--safe)}.mapping.same_name_not_copyable{border-color:#efc98d;background:var(--review-soft);color:var(--review)}.mapping.source_only{border-color:#b9caef;background:var(--blue-soft);color:var(--blue)}.mapping.target_only{border-color:#c7cdd7;background:var(--ignored-soft);color:var(--ignored)}
                 .detail-shell{max-width:1440px;margin:0 auto;padding:0 28px 64px}.detail-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:15px;min-height:58px;margin-bottom:26px;border-bottom:1px solid var(--line);background:rgba(242,244,247,.94);backdrop-filter:blur(10px)}.pager{display:flex;gap:7px}.nav-link{display:inline-flex;align-items:center;justify-content:center;min-height:34px;border:1px solid var(--line-dark);border-radius:7px;background:#fff;padding:6px 11px;color:#344054;font-size:12px;font-weight:650;text-decoration:none}.nav-link:hover{border-color:var(--blue);color:var(--blue)}.nav-link.back-link{border:0;background:transparent;padding-left:0;color:var(--blue)}.nav-link.disabled{opacity:.42;cursor:not-allowed}.detail-header{display:grid;grid-template-columns:1fr 260px;gap:24px;align-items:stretch;margin-bottom:18px}.detail-heading{min-width:0;padding:9px 0}.detail-title-line{display:flex;align-items:center;gap:12px;margin-top:6px}.detail-title-line h1{margin:0;font-size:25px;overflow-wrap:anywhere}.detail-heading p{margin:8px 0 0;color:var(--muted)}.detail-heading p span{padding:0 5px}.verdict-card{display:flex;flex-direction:column;justify-content:center;border:1px solid var(--line);border-left:4px solid var(--ignored);border-radius:9px;background:#fff;padding:16px 18px;box-shadow:var(--shadow)}.verdict-card.risk{border-left-color:var(--risk)}.verdict-card.review{border-left-color:var(--review)}.verdict-card.safe{border-left-color:var(--safe)}.verdict-card span{color:var(--muted);font-size:11px}.verdict-card b{margin:2px 0;font-size:22px}.verdict-card.risk b{color:var(--risk)}.verdict-card.review b{color:var(--review)}.verdict-card.safe b{color:var(--safe)}
                 .detail-section{margin:14px 0;border:1px solid var(--line);border-radius:11px;background:#fff;padding:20px;box-shadow:0 2px 12px rgba(23,32,51,.035);scroll-margin-top:72px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:14px}.section-heading>div{display:flex;align-items:center;gap:9px}.section-heading h2{margin:0;font-size:16px}.section-heading p{margin:1px 0 0;color:var(--muted);font-size:11px}.section-index{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:6px;background:var(--navy);color:#fff;font-size:10px;font-weight:800}.code-block{margin:0;border:1px solid var(--line);border-radius:8px;background:#f7f8fa;padding:14px;white-space:pre-wrap;word-break:break-word;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.bean-types{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.bean-type-card{min-width:0;border:1px solid var(--line);border-radius:8px;padding:13px}.bean-type-card>span{display:block;color:var(--blue);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.bean-type-card b{display:block;margin:3px 0;font-size:15px}.bean-type-card code,.property-table code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:8px}.property-table{min-width:900px;font-size:12px}.property-table th,.property-table td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px}.property-table thead th{background:#f7f8fa;color:#596579;font-size:10px;letter-spacing:.025em;white-space:nowrap}.property-table tbody tr:last-child td{border-bottom:0}.property-table tbody tr:hover{background:#fafcff}.side-table th:nth-child(1){width:14%}.side-table th:nth-child(2){width:30%}.side-table th:nth-child(3){width:16%}.side-table th:nth-child(4){width:90px}.reason-cell{color:#526075}.mapping-table{min-width:1280px}.mapping-table th:nth-child(1){width:85px}.mapping-table th:nth-child(2){width:140px}.mapping-table th:nth-child(3){width:130px}.mapping-table th:nth-child(4),.mapping-table th:nth-child(5){width:18%}.mapping-table th:nth-child(6){width:135px}.old-result{font-size:11px}.old-copy{color:var(--safe);font-weight:700}.decision{display:block;color:#344054;font-size:11px}.reason{display:block;margin-top:3px;color:#596579}.property-empty{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px dashed var(--line-dark);border-radius:8px;background:#fafbfc;padding:18px;color:var(--muted)}.property-empty b{color:#344054}.call-chain{list-style:none;margin:0;padding:0}.call-chain li{display:flex;gap:10px;align-items:flex-start;padding:7px 0}.call-chain li>span{display:block;width:8px;height:8px;margin-top:7px;border:2px solid var(--blue);border-radius:50%;background:#fff}.call-chain b,.call-chain small{display:block}.detail-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}
+                .findings-table td:nth-child(1){width:240px}.findings-table td:nth-child(3),.findings-table td:nth-child(4){width:20%}.conclusion-cell .status{margin-bottom:6px}.review-primary{display:block;color:#704000;line-height:1.45}.review-primary b{display:block;margin-bottom:2px;color:var(--review);font:700 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.review-reasons-section{border-color:#efc98d;background:#fffbf4}.review-index{background:var(--review)}.review-reason-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}.review-reason-list li{border:1px solid #efd7ae;border-left:3px solid var(--review);border-radius:7px;background:#fff;padding:11px 13px}.review-reason-list li>div{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.review-reason-list code{color:#7a4600;font:700 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}.review-reason-list span{border-radius:999px;background:var(--review-soft);padding:2px 7px;color:#875000;font-size:10px;font-weight:700}.review-reason-list p{margin:5px 0 0;color:#4c3a24;overflow-wrap:anywhere}
                 @media(max-width:980px){.metrics{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 200px}.visible-count{padding-bottom:0}.detail-header{grid-template-columns:1fr}.bean-types{grid-template-columns:1fr}}
                 @media(max-width:680px){.page-shell,.detail-shell{padding-left:12px;padding-right:12px}.report-header{display:block}.header-note{margin-top:18px}.metrics{grid-template-columns:1fr 1fr}.controls{position:static;grid-template-columns:1fr}.detail-nav{margin-bottom:14px}.detail-nav .pager{display:none}.detail-title-line{align-items:flex-start;flex-direction:column}.detail-title-line h1{font-size:20px}.detail-section{padding:14px}.section-heading{display:block}.section-heading p{margin:7px 0 0 34px}.detail-footer{align-items:flex-start;flex-direction:column}.detail-footer .pager{width:100%;justify-content:space-between}}
                 """;

@@ -36,7 +36,7 @@ class DirectCopyAnalyzerTest {
         analyzer.analyze(direct);
         analyzer.analyze(direct);
         analyzer.analyze(missingSetter);
-        analyzer.analyze(methodReference);
+        var methodReferenceFinding = analyzer.analyze(methodReference);
 
         assertEquals(1, count(lines, "[BeanUtilsScanner][BEAN] type=example.CopyCalls.Source "));
         assertEquals(1, count(lines, "[BeanUtilsScanner][BEAN] type=example.CopyCalls.Target "));
@@ -54,6 +54,8 @@ class DirectCopyAnalyzerTest {
         assertTrue(lines.stream().noneMatch(line -> line.contains(" name=class ")));
         assertTrue(lines.stream().anyMatch(line -> line.equals(
                 "[BeanUtilsScanner][BEAN-ERROR] type=? reason=method-reference-no-concrete-bean-types")));
+        assertEquals("METHOD_REFERENCE_TYPES_UNKNOWN", methodReferenceFinding.reviewReasons().get(0).code());
+        assertTrue(methodReferenceFinding.reviewReasons().get(0).message().contains("实际的 Source Bean 和 Target Bean 类型"));
     }
 
     @Test

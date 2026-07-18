@@ -73,6 +73,11 @@ class CompiledClassAnalysisTest {
 
         assertEquals(1, report.findings().size());
         assertEquals(FindingStatus.REVIEW, report.findings().get(0).status());
+        assertTrue(report.findings().get(0).reviewReasons().stream()
+                .anyMatch(reason -> reason.message().contains("com.baomidou.mybatisplus.service.IService")),
+                () -> report.findings().get(0).reviewReasons().toString());
+        assertTrue(report.findings().get(0).reviewReasons().stream()
+                .noneMatch(reason -> reason.code().equals("REVIEW_REASON_MISSING")));
         assertTrue(trace.stream().anyMatch(line -> line.contains("type=fixture.MybatisServiceBean")
                 && (line.contains("CLASS-FALLBACK") || line.contains("property-model-incomplete"))));
     }

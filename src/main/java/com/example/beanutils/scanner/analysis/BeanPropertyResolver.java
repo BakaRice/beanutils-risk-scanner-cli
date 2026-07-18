@@ -5,12 +5,16 @@ import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import java.beans.Introspector;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 final class BeanPropertyResolver {
     private final BeanPropertyTraceLogger trace;
@@ -23,20 +27,21 @@ final class BeanPropertyResolver {
         if (beanType == null || !beanType.isReferenceType()) {
             trace.error(beanType, "not-reference-type");
             trace.error(beanType, "property-model-incomplete");
-            return BeanPropertyResolution.incomplete();
+            return BeanPropertyResolution.incomplete("Bean 类型不是可解析的引用类型：" + describe(beanType));
         }
         try {
             if (beanType.asReferenceType().getTypeDeclaration().isEmpty()) {
                 trace.error(beanType, "missing-type-declaration");
                 trace.error(beanType, "property-model-incomplete");
-                return BeanPropertyResolution.incomplete();
+                return BeanPropertyResolution.incomplete("找不到 Bean 类型声明：" + describe(beanType));
             }
         } catch (RuntimeException | LinkageError exception) {
             trace.error(beanType, "type-declaration-resolution-failed");
             trace.error(beanType, "property-model-incomplete");
-            return BeanPropertyResolution.incomplete();
+            return BeanPropertyResolution.incomplete("读取 Bean 类型声明失败：" + failure(exception));
         }
         boolean complete = true;
+        Set<String> issues = new LinkedHashSet<>();
         Map<String, MutableProperty> properties = new LinkedHashMap<>();
         List<ResolvedReferenceType> hierarchy = new ArrayList<>();
         hierarchy.add(beanType.asReferenceType());
@@ -45,6 +50,7 @@ final class BeanPropertyResolver {
         } catch (RuntimeException | LinkageError exception) {
             complete = false;
             trace.error(beanType, "ancestor-resolution-failed");
+            issues.add("解析父类/接口继承链失败：" + ancestorFailure(beanType, exception));
         }
         for (ResolvedReferenceType reference : hierarchy) {
             ResolvedReferenceTypeDeclaration declaration;
@@ -52,10 +58,12 @@ final class BeanPropertyResolver {
                 declaration = reference.getTypeDeclaration().orElse(null);
             } catch (RuntimeException | LinkageError exception) {
                 complete = false;
+                issues.add("读取继承类型声明失败（" + describe(reference) + "）：" + failure(exception));
                 continue;
             }
             if (declaration == null) {
                 complete = false;
+                issues.add("继承链中的类型没有可用声明：" + describe(reference));
                 continue;
             }
             List<MethodUsage> methods;
@@ -63,6 +71,7 @@ final class BeanPropertyResolver {
                 methods = declaration.getDeclaredMethods().stream().map(MethodUsage::new).toList();
             } catch (RuntimeException | LinkageError exception) {
                 complete = false;
+                issues.add("读取 " + declaration.getQualifiedName() + " 的 JavaBean 方法失败：" + failure(exception));
                 continue;
             }
             for (MethodUsage usage : methods) {
@@ -70,9 +79,13 @@ final class BeanPropertyResolver {
                     MethodUsage specialized = specialize(usage, reference);
                     if (!add(properties, specialized, declaration.getQualifiedName())) {
                         complete = false;
+                        issues.add("解析 " + declaration.getQualifiedName() + "#" + usage.getName()
+                                + " 的 getter/setter 签名失败");
                     }
                 } catch (RuntimeException | LinkageError exception) {
                     complete = false;
+                    issues.add("解析 " + declaration.getQualifiedName() + "#" + usage.getName()
+                            + " 的泛型方法签名失败：" + failure(exception));
                 }
             }
         }
@@ -86,7 +99,62 @@ final class BeanPropertyResolver {
         if (!complete) {
             trace.error(beanType, "property-model-incomplete");
         }
-        return new BeanPropertyResolution(result, complete);
+        return new BeanPropertyResolution(result, complete, List.copyOf(issues));
+    }
+
+    private String describe(Object value) {
+        if (value == null) return "?";
+        try {
+            if (value instanceof ResolvedType type) return type.describe();
+            if (value instanceof ResolvedReferenceType type) return type.describe();
+        } catch (RuntimeException | LinkageError ignored) {
+            // Fall through to a safe representation.
+        }
+        return String.valueOf(value);
+    }
+
+    private String failure(Throwable failure) {
+        Throwable useful = failure;
+        while (useful.getCause() != null && useful.getCause() != useful) useful = useful.getCause();
+        String message = useful.getMessage();
+        if (message == null || message.isBlank()) message = failure.getMessage();
+        String type = useful.getClass().getSimpleName();
+        return message == null || message.isBlank() ? type : type + "：" + message.replace('/', '.');
+    }
+
+    private String ancestorFailure(ResolvedType beanType, Throwable exception) {
+        String basic = failure(exception);
+        try {
+            var declaration = beanType.asReferenceType().getTypeDeclaration().orElse(null);
+            if (declaration == null) return basic;
+            var ast = declaration.toAst(ClassOrInterfaceDeclaration.class).orElse(null);
+            if (ast == null) return basic;
+            String missingSimpleName = basic.replaceFirst("(?s).*Unsolved symbol\\s*:\\s*", "").trim();
+            if (missingSimpleName.contains(" ")) missingSimpleName = missingSimpleName.substring(0, missingSimpleName.indexOf(' '));
+            List<ClassOrInterfaceType> ancestors = new ArrayList<>();
+            ancestors.addAll(ast.getExtendedTypes());
+            ancestors.addAll(ast.getImplementedTypes());
+            for (ClassOrInterfaceType ancestor : ancestors) {
+                String written = ancestor.getNameWithScope();
+                if (!written.equals(missingSimpleName) && !written.endsWith("." + missingSimpleName)) continue;
+                String qualified = qualify(ast, written);
+                return basic + "（缺失类型：" + qualified + "）";
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // The original resolution failure remains the useful evidence.
+        }
+        return basic;
+    }
+
+    private String qualify(ClassOrInterfaceDeclaration declaration, String written) {
+        if (written.contains(".")) return written;
+        var unit = declaration.findCompilationUnit().orElse(null);
+        if (unit == null) return written;
+        var imported = unit.getImports().stream()
+                .filter(value -> !value.isAsterisk() && value.getName().getIdentifier().equals(written))
+                .map(value -> value.getNameAsString()).findFirst();
+        if (imported.isPresent()) return imported.orElseThrow();
+        return unit.getPackageDeclaration().map(value -> value.getNameAsString() + "." + written).orElse(written);
     }
 
     private boolean isCompiledDeclaration(ResolvedReferenceTypeDeclaration declaration) {

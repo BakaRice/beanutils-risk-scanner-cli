@@ -53,6 +53,7 @@ public final class BeanUtilsCallDetector {
         Set<String> ignored = Set.of();
         boolean ignoresResolved = true;
         TypeRef editable = null;
+        List<String> resolutionIssues = new ArrayList<>();
         if (call.getArguments().size() >= 3 && call.getArgument(2) instanceof ClassExpr classExpr) {
             form = CopyCallForm.EDITABLE;
             editable = resolveClassType(classExpr);
@@ -63,21 +64,24 @@ public final class BeanUtilsCallDetector {
             ignored = result.names();
             ignoresResolved = result.complete();
         }
-        boolean exact = resolvesToSpring(call);
-        ResolvedType resolvedSource = resolvedType(sourceExpression);
-        ResolvedType resolvedTarget = resolvedType(targetExpression);
+        boolean exact = resolvesToSpring(call, resolutionIssues);
+        ResolvedType resolvedSource = resolvedType(sourceExpression, "Source", resolutionIssues);
+        ResolvedType resolvedTarget = resolvedType(targetExpression, "Target", resolutionIssues);
         return new CopyCallSite(call, sourceExpression, targetExpression,
-                typeRef(workspace, resolvedSource, sourceExpression), typeRef(workspace, resolvedTarget, targetExpression),
+                typeRef(workspace, resolvedSource, sourceExpression, "Source", resolutionIssues),
+                typeRef(workspace, resolvedTarget, targetExpression, "Target", resolutionIssues),
                 resolvedSource, resolvedTarget, ignored,
                 ignoresResolved, editable, exact, location(workspace, source, call), call.toString(),
-                containingMethod(call), ownerType(call), form);
+                containingMethod(call), ownerType(call), form, resolutionIssues);
     }
 
     private CopyCallSite methodReference(SourceWorkspace workspace, ParsedSource source, MethodReferenceExpr reference) {
+        List<String> resolutionIssues = new ArrayList<>();
+        boolean exact = resolvesToSpring(reference, resolutionIssues);
         return new CopyCallSite(reference, null, null, TypeRef.unresolved("method-reference-source"),
                 TypeRef.unresolved("method-reference-target"), null, null, Set.of(), true, null,
-                resolvesToSpring(reference), location(workspace, source, reference), reference.toString(),
-                containingMethod(reference), ownerType(reference), CopyCallForm.METHOD_REFERENCE);
+                exact, location(workspace, source, reference), reference.toString(),
+                containingMethod(reference), ownerType(reference), CopyCallForm.METHOD_REFERENCE, resolutionIssues);
     }
 
     private boolean isSpringCall(MethodCallExpr call, CompilationUnit unit) {
@@ -109,23 +113,40 @@ public final class BeanUtilsCallDetector {
     }
 
     private boolean resolvesToSpring(MethodCallExpr call) {
+        return resolvesToSpring(call, new ArrayList<>());
+    }
+
+    private boolean resolvesToSpring(MethodCallExpr call, List<String> issues) {
         try {
-            return call.resolve().declaringType().getQualifiedName().equals(SPRING_BEAN_UTILS);
+            String owner = call.resolve().declaringType().getQualifiedName();
+            boolean spring = owner.equals(SPRING_BEAN_UTILS);
+            if (!spring) issues.add("copyProperties 方法解析到 " + owner + "，不是 " + SPRING_BEAN_UTILS);
+            return spring;
         } catch (RuntimeException | LinkageError exception) {
+            issues.add("解析 BeanUtils.copyProperties 方法声明失败：" + failure(exception));
             return false;
         }
     }
 
     private boolean resolvesToSpring(MethodReferenceExpr reference) {
+        return resolvesToSpring(reference, new ArrayList<>());
+    }
+
+    private boolean resolvesToSpring(MethodReferenceExpr reference, List<String> issues) {
         try {
-            return reference.resolve().declaringType().getQualifiedName().equals(SPRING_BEAN_UTILS);
+            String owner = reference.resolve().declaringType().getQualifiedName();
+            boolean spring = owner.equals(SPRING_BEAN_UTILS);
+            if (!spring) issues.add("copyProperties 方法引用解析到 " + owner + "，不是 " + SPRING_BEAN_UTILS);
+            return spring;
         } catch (RuntimeException | LinkageError exception) {
+            issues.add("解析 BeanUtils.copyProperties 方法引用失败：" + failure(exception));
             return false;
         }
     }
 
-    private ResolvedType resolvedType(Expression expression) {
+    private ResolvedType resolvedType(Expression expression, String side, List<String> issues) {
         if (expression == null) {
+            issues.add(side + " 表达式不存在");
             return null;
         }
         try {
@@ -138,11 +159,13 @@ public final class BeanUtilsCallDetector {
             }
             return type;
         } catch (RuntimeException | LinkageError exception) {
+            issues.add(side + " 表达式 “" + expression + "” 的类型解析失败：" + failure(exception));
             return null;
         }
     }
 
-    private TypeRef typeRef(SourceWorkspace workspace, ResolvedType type, Expression expression) {
+    private TypeRef typeRef(SourceWorkspace workspace, ResolvedType type, Expression expression,
+                            String side, List<String> issues) {
         if (type == null) {
             return TypeRef.unresolved(expression == null ? "missing-expression" : expression.toString());
         }
@@ -155,8 +178,18 @@ public final class BeanUtilsCallDetector {
                     .map(location -> reference.withOrigin(location.module(), location.relativePath()))
                     .orElse(reference);
         } catch (RuntimeException | LinkageError exception) {
+            issues.add(side + " 类型来源定位失败：" + failure(exception));
             return TypeRef.unresolved(expression == null ? "missing-expression" : expression.toString());
         }
+    }
+
+    private String failure(Throwable failure) {
+        Throwable useful = failure;
+        while (useful.getCause() != null && useful.getCause() != useful) useful = useful.getCause();
+        String message = useful.getMessage();
+        if (message == null || message.isBlank()) message = failure.getMessage();
+        String type = useful.getClass().getSimpleName();
+        return message == null || message.isBlank() ? type : type + "：" + message.replace('/', '.');
     }
 
     private TypeRef resolveClassType(ClassExpr expression) {

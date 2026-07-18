@@ -7,6 +7,7 @@ import com.example.beanutils.scanner.model.PropertyMapping;
 import com.example.beanutils.scanner.model.ScanReport;
 import com.example.beanutils.scanner.model.SourceLocation;
 import com.example.beanutils.scanner.model.TypeRef;
+import com.example.beanutils.scanner.model.ReviewReason;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -61,11 +62,16 @@ class ReportWriterTest {
         Files.createDirectories(detailDirectory);
         Files.writeString(detailDirectory.resolve("finding-9999.html"), "stale");
 
-        var secondFinding = new CopyFinding(FindingStatus.SAFE,
+        var secondFinding = new CopyFinding(FindingStatus.REVIEW,
                 new SourceLocation("Domain", "Domain/src/B.java", 28, 5),
                 "BeanUtils.copyProperties(otherSource, otherTarget)",
                 finding.sourceType(), finding.targetType(), finding.properties(),
-                List.of(), "DIRECT", "Domain");
+                List.of(), "DIRECT", "Domain", List.of(
+                        new ReviewReason("SOURCE_PROPERTY_MODEL_INCOMPLETE",
+                                "Source Bean example.Source 的父类 com.example.MissingBase 无法加载",
+                                "SOURCE"),
+                        new ReviewReason("RAW_GENERIC_PROPERTY",
+                                "同名属性 items 使用 raw type，泛型参数已经丢失", "PROPERTY", "items")));
         report = new ScanReport(report.projectPath(), report.generatedAt(), List.of(finding, secondFinding), List.of());
 
         new HtmlReportWriter().write(report, htmlPath);
@@ -102,6 +108,9 @@ class ReportWriterTest {
         assertTrue(json.contains("example.Target<java.lang.Long>"));
         assertTrue(json.contains("\"sourceDeclaringType\" : \"example.BaseSource\""));
         assertTrue(json.contains("\"targetDeclaringType\" : \"example.BaseTarget\""));
+        assertTrue(json.contains("\"reviewReasons\""));
+        assertTrue(json.contains("\"code\" : \"SOURCE_PROPERTY_MODEL_INCOMPLETE\""));
+        assertTrue(json.contains("com.example.MissingBase"));
 
         assertTrue(Files.isDirectory(detailDirectory));
         try (var detailFiles = Files.list(detailDirectory)) {
@@ -131,6 +140,11 @@ class ReportWriterTest {
         assertTrue(detail.contains("href=\"../report%20audit%231.html\""));
         assertTrue(detail.contains("href=\"finding-0002.html\""));
         String secondDetail = Files.readString(detailDirectory.resolve("finding-0002.html"));
+        assertTrue(html.contains("Source Bean example.Source 的父类 com.example.MissingBase 无法加载"));
+        assertTrue(secondDetail.contains("id=\"review-reasons\""));
+        assertTrue(secondDetail.contains("SOURCE_PROPERTY_MODEL_INCOMPLETE"));
+        assertTrue(secondDetail.contains("RAW_GENERIC_PROPERTY"));
+        assertTrue(secondDetail.contains("同名属性 items 使用 raw type，泛型参数已经丢失"));
         assertTrue(secondDetail.contains("href=\"finding-0001.html\""));
         assertTrue(secondDetail.contains("下一个调用 →</span>"));
         assertFalse(detail.contains("http://"));

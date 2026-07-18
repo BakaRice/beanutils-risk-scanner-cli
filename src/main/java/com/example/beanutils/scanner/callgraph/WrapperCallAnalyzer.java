@@ -9,6 +9,7 @@ import com.example.beanutils.scanner.model.CopyFinding;
 import com.example.beanutils.scanner.model.FindingStatus;
 import com.example.beanutils.scanner.model.SourceLocation;
 import com.example.beanutils.scanner.model.TypeRef;
+import com.example.beanutils.scanner.model.ReviewReason;
 import com.example.beanutils.scanner.source.ParsedSource;
 import com.example.beanutils.scanner.source.SourceWorkspace;
 import com.github.javaparser.ast.Node;
@@ -60,11 +61,15 @@ public final class WrapperCallAnalyzer {
                     CopyCallSite synthetic = synthetic(workspace, source, call, CopyCallForm.WRAPPER);
                     CopyFinding base = analyzer.analyze(synthetic);
                     CopyCallSite terminal = selectOverload(call, terminalCalls);
-                    findings.add(asReview(base, terminal, "项目内包装方法调用，已恢复已知调用链"));
+                    findings.add(asReview(base, terminal, new ReviewReason("PROJECT_WRAPPER_CALL",
+                            "当前代码调用的是项目内包装方法；虽然已恢复到 BeanUtils.copyProperties 的调用链，但无法证明所有参数传递和运行期实际类型",
+                            "CALL")));
                 } else if (isHigherOrderCopy(call, source)) {
                     CopyCallSite synthetic = synthetic(workspace, source, call, CopyCallForm.HIGHER_ORDER);
                     CopyFinding base = analyzer.analyze(synthetic);
-                    findings.add(asReview(base, null, "复制操作通过函数对象传入，需要人工复核"));
+                    findings.add(asReview(base, null, new ReviewReason("HIGHER_ORDER_COPY_CALL",
+                            "BeanUtils.copyProperties 作为函数对象传入高阶方法，静态扫描无法恢复每次执行时的实际 Source/Target Bean 类型",
+                            "CALL")));
                 }
             }
         }
@@ -137,14 +142,20 @@ public final class WrapperCallAnalyzer {
         }
     }
 
-    private CopyFinding asReview(CopyFinding base, CopyCallSite terminal, String reason) {
+    private CopyFinding asReview(CopyFinding base, CopyCallSite terminal, ReviewReason reason) {
         List<CallChainStep> chain = new ArrayList<>(base.callChain());
         if (terminal != null) {
             chain.add(new CallChainStep(terminal.location(), terminal.containingMethod(),
                     "最终调用 org.springframework.beans.BeanUtils.copyProperties"));
         }
+        List<ReviewReason> reasons = new ArrayList<>();
+        if (base.status() == FindingStatus.REVIEW) {
+            reasons.addAll(base.reviewReasons());
+        }
+        reasons.removeIf(value -> value.code().equals("REVIEW_REASON_MISSING"));
+        reasons.add(reason);
         return new CopyFinding(FindingStatus.REVIEW, base.location(), base.code(), base.sourceType(), base.targetType(),
-                base.properties(), chain, base.callForm() + " · " + reason, base.module());
+                base.properties(), chain, base.callForm(), base.module(), reasons);
     }
 
     private boolean isHigherOrderCopy(MethodCallExpr call, ParsedSource source) {
